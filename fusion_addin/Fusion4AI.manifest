@@ -1,0 +1,12 @@
+{
+  "autodeskProduct": "Fusion",
+  "type": "addin",
+  "id": "fusion4ai-mcp-bridge",
+  "author": "Antigravity",
+  "description": {
+    "": "MCP bridge for AI-driven CAD modeling. Runs an HTTP server on localhost:7432."
+  },
+  "version": "1.0.0",
+  "runOnStartup": true,
+  "supportedOS": "windows|mac"
+}

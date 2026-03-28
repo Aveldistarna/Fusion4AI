@@ -1,0 +1,197 @@
+"""
+Fusion4AI — MCP bridge add-in for Autodesk Fusion.
+
+Starts an HTTP server on localhost:7432 that accepts high-level CAD commands
+from the Fusion4AI MCP server (Node.js) and executes them via the Fusion API.
+
+Thread safety:
+  The HTTP server runs on a background thread, but Fusion API calls must
+  happen on the main (UI) thread.  We use a CustomEvent to marshal calls:
+    1. HTTP handler puts (request_id, func, params) into a queue
+    2. HTTP handler fires the CustomEvent
+    3. Main thread picks up the event, runs func(params), puts result in response dict
+    4. HTTP handler reads the result and returns it
+"""
+
+import adsk.core
+import adsk.fusion
+import queue
+import threading
+import traceback
+import uuid
+from typing import Any, Callable, Dict, Optional, Tuple
+
+# Local imports
+from .server import Fusion4AIServer, register_handler
+from .handlers import session as session_handler
+from .handlers import primitives as primitives_handler
+from .handlers import queries as queries_handler
+from .handlers import modifications as modifications_handler
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+CUSTOM_EVENT_ID = "fusion4ai_execute"
+RESPONSE_TIMEOUT = 30  # seconds
+
+# ---------------------------------------------------------------------------
+# Globals (managed by run/stop lifecycle)
+# ---------------------------------------------------------------------------
+
+_app: Optional[adsk.core.Application] = None
+_server: Optional[Fusion4AIServer] = None
+_custom_event: Optional[adsk.core.CustomEvent] = None
+_event_handler: Optional[Any] = None
+
+# Thread-safe queues for main-thread dispatch
+_request_queue: "queue.Queue[Tuple[str, Callable, dict]]" = queue.Queue()
+_response_map: Dict[str, Any] = {}
+_response_events: Dict[str, threading.Event] = {}
+
+
+# ---------------------------------------------------------------------------
+# Main-thread execution bridge
+# ---------------------------------------------------------------------------
+
+def execute_on_main_thread(func: Callable, params: dict, timeout: float = RESPONSE_TIMEOUT) -> dict:
+    """
+    Schedule func(params) to run on Fusion's main thread.
+    Blocks the calling (HTTP) thread until the result is ready or timeout.
+    Returns the result dict.
+    """
+    req_id = str(uuid.uuid4())
+    event = threading.Event()
+    _response_events[req_id] = event
+
+    _request_queue.put((req_id, func, params))
+
+    # Fire the custom event to wake up the main thread
+    if _app:
+        _app.fireCustomEvent(CUSTOM_EVENT_ID)
+
+    # Wait for result
+    if not event.wait(timeout=timeout):
+        _response_events.pop(req_id, None)
+        _response_map.pop(req_id, None)
+        raise TimeoutError(f"Fusion API call timed out after {timeout}s")
+
+    _response_events.pop(req_id, None)
+    result = _response_map.pop(req_id)
+
+    if isinstance(result, Exception):
+        raise result
+    return result
+
+
+class CustomEventHandler(adsk.core.CustomEventHandler):
+    """Processes queued requests on the main thread."""
+
+    def __init__(self):
+        super().__init__()
+
+    def notify(self, args: adsk.core.CustomEventArgs) -> None:
+        # Drain all pending requests
+        while not _request_queue.empty():
+            try:
+                req_id, func, params = _request_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            try:
+                result = func(params)
+                _response_map[req_id] = result
+            except Exception as e:
+                traceback.print_exc()
+                _response_map[req_id] = e
+
+            event = _response_events.get(req_id)
+            if event:
+                event.set()
+
+
+# ---------------------------------------------------------------------------
+# Wrapped handlers (route through main thread)
+# ---------------------------------------------------------------------------
+
+def _make_main_thread_wrapper(func: Callable) -> Callable:
+    """Wrap a handler function to execute on the main thread."""
+    def wrapper(params: dict) -> dict:
+        return execute_on_main_thread(func, params)
+    return wrapper
+
+
+def _register_all_handlers() -> None:
+    """Register all handler modules, wrapping each action for main-thread execution."""
+    handler_modules = {
+        "session": session_handler,
+        "primitives": primitives_handler,
+        "queries": queries_handler,
+        "modifications": modifications_handler,
+    }
+    for name, module in handler_modules.items():
+        wrapped_actions = {
+            action_name: _make_main_thread_wrapper(action_func)
+            for action_name, action_func in module.ACTIONS.items()
+        }
+        register_handler(name, wrapped_actions)
+
+
+# ---------------------------------------------------------------------------
+# Add-in lifecycle
+# ---------------------------------------------------------------------------
+
+def run(context: dict) -> None:
+    global _app, _server, _custom_event, _event_handler
+
+    try:
+        _app = adsk.core.Application.get()
+        ui = _app.userInterface
+
+        # Register CustomEvent for main-thread dispatch
+        _custom_event = _app.registerCustomEvent(CUSTOM_EVENT_ID)
+        _event_handler = CustomEventHandler()
+        _custom_event.add(_event_handler)
+
+        # Register handler modules
+        _register_all_handlers()
+
+        # Start HTTP server
+        _server = Fusion4AIServer()
+        _server.start()
+
+        ui.messageBox(
+            "Fusion4AI MCP bridge started.\n"
+            "HTTP server listening on 127.0.0.1:7432",
+            "Fusion4AI",
+        )
+
+    except Exception:
+        traceback.print_exc()
+        if _app:
+            _app.userInterface.messageBox(
+                f"Fusion4AI failed to start:\n{traceback.format_exc()}",
+                "Fusion4AI Error",
+            )
+
+
+def stop(context: dict) -> None:
+    global _app, _server, _custom_event, _event_handler
+
+    try:
+        if _server:
+            _server.stop()
+            _server = None
+
+        if _custom_event and _event_handler:
+            _custom_event.remove(_event_handler)
+            _event_handler = None
+
+        if _app and _custom_event:
+            _app.unregisterCustomEvent(CUSTOM_EVENT_ID)
+            _custom_event = None
+
+        _app = None
+
+    except Exception:
+        traceback.print_exc()

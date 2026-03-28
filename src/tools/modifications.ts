@@ -1,0 +1,201 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { FusionClient } from "../fusion-client.js";
+
+export function register(server: McpServer, client: FusionClient): void {
+  // ── boolean_op ──
+  server.tool(
+    "boolean_op",
+    "Perform a boolean operation between two bodies. 'subtract' cuts the tool from the target. 'union' merges them. 'intersect' keeps only the overlap.",
+    {
+      operation: z.enum(["union", "subtract", "intersect"]).describe("Boolean operation type"),
+      target_body: z.string().describe("Target body name (the one that remains)"),
+      tool_body: z.string().describe("Tool body name (used to cut/merge/intersect)"),
+      keep_tool: z.boolean().optional().describe("Keep the tool body after operation (default: false)"),
+    },
+    async ({ operation, target_body, tool_body, keep_tool }) => {
+      try {
+        const result = await client.request("modifications", "boolean_op", {
+          operation, target_body, tool_body, keep_tool,
+        });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── move_body ──
+  server.tool(
+    "move_body",
+    "Move a body by a translation in mm.",
+    {
+      body_name: z.string().describe("Body name or entityToken"),
+      x: z.number().optional().describe("X offset in mm (default: 0)"),
+      y: z.number().optional().describe("Y offset in mm (default: 0)"),
+      z: z.number().optional().describe("Z offset in mm (default: 0)"),
+    },
+    async ({ body_name, x, y, z: dz }) => {
+      try {
+        const result = await client.request("modifications", "move_body", {
+          body_name, x, y, z: dz,
+        });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── copy_body ──
+  server.tool(
+    "copy_body",
+    "Copy a body with an offset in mm.",
+    {
+      body_name: z.string().describe("Body name or entityToken"),
+      x: z.number().optional().describe("X offset in mm (default: 0)"),
+      y: z.number().optional().describe("Y offset in mm (default: 0)"),
+      z: z.number().optional().describe("Z offset in mm (default: 0)"),
+      new_name: z.string().optional().describe("Name for the copied body"),
+    },
+    async ({ body_name, x, y, z: dz, new_name }) => {
+      try {
+        const result = await client.request("modifications", "copy_body", {
+          body_name, x, y, z: dz, new_name,
+        });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── add_fillet ──
+  server.tool(
+    "add_fillet",
+    "Add fillet (rounded edges) to a body. Edges can be 'all', 'top', 'bottom', 'front', 'back', 'left', 'right', or comma-separated edge IDs.",
+    {
+      body_name: z.string().describe("Body name or entityToken"),
+      radius: z.number().positive().describe("Fillet radius in mm"),
+      edges: z.string().optional().describe("Edge selection: 'all', 'top', 'bottom', etc. (default: 'all')"),
+    },
+    async ({ body_name, radius, edges }) => {
+      try {
+        const result = await client.request("modifications", "add_fillet", {
+          body_name, radius, edges,
+        });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── add_chamfer ──
+  server.tool(
+    "add_chamfer",
+    "Add chamfer (beveled edges) to a body.",
+    {
+      body_name: z.string().describe("Body name or entityToken"),
+      distance: z.number().positive().describe("Chamfer distance in mm"),
+      edges: z.string().optional().describe("Edge selection: 'all', 'top', 'bottom', etc. (default: 'all')"),
+    },
+    async ({ body_name, distance, edges }) => {
+      try {
+        const result = await client.request("modifications", "add_chamfer", {
+          body_name, distance, edges,
+        });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── add_hole ──
+  server.tool(
+    "add_hole",
+    "Add a hole on a face of a body. Face can be 'top', 'front', etc. or a face ID. Depth can be a number (mm) or 'through'.",
+    {
+      body_name: z.string().describe("Body name or entityToken"),
+      face: z.string().describe("Face reference: 'top', 'bottom', 'front', 'back', 'left', 'right', or face ID"),
+      diameter: z.number().positive().describe("Hole diameter in mm"),
+      depth: z.union([z.number().positive(), z.literal("through")]).optional()
+        .describe("Hole depth in mm or 'through' (default: 'through')"),
+      offset_x: z.number().optional().describe("X offset from face center in mm (default: 0)"),
+      offset_y: z.number().optional().describe("Y offset from face center in mm (default: 0)"),
+    },
+    async ({ body_name, face, diameter, depth, offset_x, offset_y }) => {
+      try {
+        const result = await client.request("modifications", "add_hole", {
+          body_name, face, diameter, depth, offset_x, offset_y,
+        });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── add_holes (multiple holes in one sketch) ──
+  server.tool(
+    "add_holes",
+    "Add multiple holes on a face in a single operation. All holes are cut at once, avoiding coordinate drift. Each hole is specified as {x, y, diameter} where x/y are offsets from the face center in mm.",
+    {
+      body_name: z.string().describe("Body name or entityToken"),
+      face: z.string().describe("Face reference: 'top', 'bottom', 'front', 'back', 'left', 'right', or face ID"),
+      holes: z.array(z.object({
+        x: z.number().describe("X offset from face center in mm"),
+        y: z.number().describe("Y offset from face center in mm"),
+        diameter: z.number().positive().describe("Hole diameter in mm"),
+      })).describe("Array of holes to create"),
+      depth: z.union([z.number().positive(), z.literal("through")]).optional()
+        .describe("Hole depth in mm or 'through' (default: 'through')"),
+    },
+    async ({ body_name, face, holes, depth }) => {
+      try {
+        const result = await client.request("modifications", "add_holes", {
+          body_name, face, holes, depth,
+        });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+}
