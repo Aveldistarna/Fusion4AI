@@ -198,4 +198,61 @@ export function register(server: McpServer, client: FusionClient): void {
       }
     }
   );
+
+  // ── cut_by_plane ──
+  server.tool(
+    "cut_by_plane",
+    "Cut a body with an infinite plane defined by a point and normal vector. Removes material on the normal side of the plane.",
+    {
+      body_name: z.string().describe("Body name or entityToken"),
+      point: z.tuple([z.number(), z.number(), z.number()])
+        .describe("A point on the cutting plane [x, y, z] in mm"),
+      normal: z.tuple([z.number(), z.number(), z.number()])
+        .describe("Normal vector of the plane [nx, ny, nz] — material on this side is removed"),
+    },
+    async ({ body_name, point, normal }) => {
+      try {
+        const result = await client.request("modifications", "cut_by_plane", {
+          body_name, point, normal,
+        });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── rotate_body ──
+  server.tool(
+    "rotate_body",
+    "Rotate a body around an axis defined by a point and direction vector.",
+    {
+      body_name: z.string().describe("Body name or entityToken"),
+      angle: z.number().describe("Rotation angle in degrees"),
+      axis_point: z.tuple([z.number(), z.number(), z.number()]).optional()
+        .describe("A point on the rotation axis [x, y, z] in mm (default: origin)"),
+      axis_direction: z.tuple([z.number(), z.number(), z.number()]).optional()
+        .describe("Direction of rotation axis [dx, dy, dz] (default: [0,0,1] = Z axis)"),
+    },
+    async ({ body_name, angle, axis_point, axis_direction }) => {
+      try {
+        const result = await client.request("modifications", "rotate_body", {
+          body_name, angle, axis_point, axis_direction,
+        });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
 }

@@ -15,6 +15,7 @@ Thread safety:
 
 import adsk.core
 import adsk.fusion
+import importlib
 import queue
 import threading
 import traceback
@@ -121,20 +122,53 @@ def _make_main_thread_wrapper(func: Callable) -> Callable:
     return wrapper
 
 
-def _register_all_handlers() -> None:
-    """Register all handler modules, wrapping each action for main-thread execution."""
-    handler_modules = {
+def _get_handler_modules() -> dict:
+    """Return the mapping of handler name -> module."""
+    from .handlers import session as session_handler
+    from .handlers import primitives as primitives_handler
+    from .handlers import queries as queries_handler
+    from .handlers import modifications as modifications_handler
+    return {
         "session": session_handler,
         "primitives": primitives_handler,
         "queries": queries_handler,
         "modifications": modifications_handler,
     }
+
+
+def _register_all_handlers(reload: bool = False) -> dict:
+    """Register all handler modules, wrapping each action for main-thread execution.
+    If reload=True, uses importlib.reload to pick up code changes."""
+    handler_modules = _get_handler_modules()
+
+    # Also reload utility modules
+    if reload:
+        from .utils import geometry as geom_mod
+        from .utils import naming as naming_mod
+        importlib.reload(geom_mod)
+        importlib.reload(naming_mod)
+
+    reloaded = []
     for name, module in handler_modules.items():
+        if reload:
+            importlib.reload(module)
+            reloaded.append(name)
         wrapped_actions = {
             action_name: _make_main_thread_wrapper(action_func)
             for action_name, action_func in module.ACTIONS.items()
         }
         register_handler(name, wrapped_actions)
+
+    # Register the reload action itself (runs directly, not through handler modules)
+    def _reload_action(params: dict) -> dict:
+        result = _register_all_handlers(reload=True)
+        return result
+
+    register_handler("system", {
+        "reload": _make_main_thread_wrapper(_reload_action),
+    })
+
+    return {"reloaded": reloaded, "handlers": list(handler_modules.keys())}
 
 
 # ---------------------------------------------------------------------------

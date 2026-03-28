@@ -352,6 +352,142 @@ def add_holes(params: dict) -> dict:
     return body_info(body)
 
 
+# ── Cut by plane ──
+
+def cut_by_plane(params: dict) -> dict:
+    """Cut a body with an infinite plane defined by a point and normal vector.
+    Keeps the side opposite to the normal direction (i.e., removes material
+    in the normal direction from the point)."""
+    design = _get_design()
+    root = design.rootComponent
+
+    body = find_body(design, params["body_name"])
+    if not body:
+        raise ValueError(f"Body not found: {params['body_name']}")
+
+    # Point and normal in mm → cm
+    pt = params["point"]  # [x, y, z] in mm
+    nm = params["normal"]  # [nx, ny, nz] unit vector
+
+    point = adsk.core.Point3D.create(_mm2cm(pt[0]), _mm2cm(pt[1]), _mm2cm(pt[2]))
+    normal = adsk.core.Vector3D.create(nm[0], nm[1], nm[2])
+    normal.normalize()
+
+    # Strategy: create a large thin cutting slab, orient it using the normal,
+    # position it, then subtract from the target body.
+    # This avoids needing ConstructionPlane (which requires existing geometry refs).
+
+    # Create a large slab (200x200x200 mm half-space approximation)
+    slab_size = 20.0  # 200mm in cm
+    slab_thick = 10.0  # 100mm thick (covers any body)
+
+    # The slab starts at the plane and extends in the normal direction
+    # We need to orient it so its "top" face aligns with the cutting plane
+
+    # Build rotation from Z-axis to the desired normal
+    # Default slab normal is (0, 0, 1), we need to rotate to target normal
+    z_axis = adsk.core.Vector3D.create(0, 0, 1)
+
+    # Create the slab centered at origin first
+    sketches = root.sketches
+    xy_plane = root.xYConstructionPlane
+    sketch = sketches.add(xy_plane)
+    half = slab_size / 2
+    sketch.sketchCurves.sketchLines.addTwoPointRectangle(
+        adsk.core.Point3D.create(-half, -half, 0),
+        adsk.core.Point3D.create(half, half, 0),
+    )
+    profile = sketch.profiles.item(0)
+
+    extrudes = root.features.extrudeFeatures
+    ext_input = extrudes.createInput(
+        profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation
+    )
+    ext_input.setDistanceExtent(False, adsk.core.ValueInput.createByReal(slab_thick))
+    ext = extrudes.add(ext_input)
+    slab_body = ext.bodies.item(0)
+    slab_body.name = "_cut_slab_temp"
+
+    # Rotate slab to align with target normal
+    move_feats = root.features.moveFeatures
+    dot = z_axis.x * normal.x + z_axis.y * normal.y + z_axis.z * normal.z
+    if dot < 0.9999:  # not already aligned
+        if dot > -0.9999:  # not opposite
+            rot_axis = z_axis.crossProduct(normal)
+            rot_axis.normalize()
+            rot_angle = math.acos(max(-1, min(1, dot)))
+        else:
+            # 180 degree rotation, pick any perpendicular axis
+            rot_axis = adsk.core.Vector3D.create(1, 0, 0)
+            rot_angle = math.pi
+
+        slab_col = adsk.core.ObjectCollection.create()
+        slab_col.add(slab_body)
+        rot_transform = adsk.core.Matrix3D.create()
+        rot_transform.setToRotation(rot_angle, rot_axis, adsk.core.Point3D.create(0, 0, 0))
+        move_input = move_feats.createInput(slab_col, rot_transform)
+        move_feats.add(move_input)
+
+    # Move slab to the plane point
+    slab_col2 = adsk.core.ObjectCollection.create()
+    slab_col2.add(slab_body)
+    translate = adsk.core.Matrix3D.create()
+    translate.translation = adsk.core.Vector3D.create(point.x, point.y, point.z)
+    move_input2 = move_feats.createInput(slab_col2, translate)
+    move_feats.add(move_input2)
+
+    # Subtract slab from target body
+    vol_before = body.volume
+    combine_feats = root.features.combineFeatures
+    tool_bodies = adsk.core.ObjectCollection.create()
+    tool_bodies.add(slab_body)
+    combine_input = combine_feats.createInput(body, tool_bodies)
+    combine_input.operation = adsk.fusion.FeatureOperations.CutFeatureOperation
+    combine_input.isKeepToolBodies = False
+    combine_feats.add(combine_input)
+
+    result = body_info(body)
+    result["volume_before_cm3"] = vol_before
+    result["volume_delta_cm3"] = round(result["volume_cm3"] - vol_before, 6)
+    return result
+
+
+# ── Rotate body ──
+
+def rotate_body(params: dict) -> dict:
+    """Rotate a body around an axis defined by a point and direction vector."""
+    design = _get_design()
+    root = design.rootComponent
+
+    body = find_body(design, params["body_name"])
+    if not body:
+        raise ValueError(f"Body not found: {params['body_name']}")
+
+    angle_deg = params["angle"]
+    axis_pt = params.get("axis_point", [0, 0, 0])  # mm
+    axis_dir = params.get("axis_direction", [0, 0, 1])  # unit vector
+
+    origin = adsk.core.Point3D.create(
+        _mm2cm(axis_pt[0]), _mm2cm(axis_pt[1]), _mm2cm(axis_pt[2])
+    )
+    direction = adsk.core.Vector3D.create(axis_dir[0], axis_dir[1], axis_dir[2])
+    direction.normalize()
+
+    angle_rad = math.radians(angle_deg)
+
+    bodies_col = adsk.core.ObjectCollection.create()
+    bodies_col.add(body)
+
+    transform = adsk.core.Matrix3D.create()
+    transform.setToRotation(angle_rad, direction, origin)
+
+    move_feats = root.features.moveFeatures
+    move_input = move_feats.createInput(bodies_col, transform)
+    move_feats.add(move_input)
+
+    return body_info(body)
+
+
 ACTIONS = {
     "boolean_op": boolean_op,
     "move_body": move_body,
@@ -360,4 +496,6 @@ ACTIONS = {
     "add_chamfer": add_chamfer,
     "add_hole": add_hole,
     "add_holes": add_holes,
+    "cut_by_plane": cut_by_plane,
+    "rotate_body": rotate_body,
 }

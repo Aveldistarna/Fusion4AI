@@ -95,4 +95,29 @@ export function register(server: McpServer, client: FusionClient): void {
       }
     }
   );
+
+  // ── fusion_reload ──
+  server.tool(
+    "fusion_reload",
+    "Hot-reload all Python handler modules in the Fusion add-in. Use this after editing Python code — no need to manually restart the add-in.",
+    {},
+    async () => {
+      try {
+        const result = await client.request("system", "reload", {});
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Reloaded: ${JSON.stringify(result)}`,
+            },
+          ],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
 }
