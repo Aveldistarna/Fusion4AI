@@ -166,4 +166,49 @@ export function register(server: McpServer, client: FusionClient): void {
       }
     }
   );
+
+  // ── get_timeline ──
+  server.tool(
+    "get_timeline",
+    "List all items in the Fusion design timeline (features, sketches, construction planes, etc.) with index, type, name, and status.",
+    {},
+    async () => {
+      try {
+        const result = await client.request("session", "get_timeline", {});
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── delete_feature ──
+  server.tool(
+    "delete_feature",
+    "Delete a feature or sketch from the design by timeline index or name.",
+    {
+      index: z.number().int().min(0).optional()
+        .describe("Timeline index of the item to delete"),
+      name: z.string().optional()
+        .describe("Name of the feature/sketch to delete"),
+    },
+    async ({ index, name }) => {
+      try {
+        const result = await client.request("session", "delete_feature", { index, name });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
 }

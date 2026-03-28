@@ -155,10 +155,101 @@ def redo(params: dict) -> dict:
     }
 
 
+def get_timeline(params: dict) -> dict:
+    """List all items in the design timeline with index, type, and name."""
+    app = adsk.core.Application.get()
+    design = adsk.fusion.Design.cast(app.activeProduct)
+    if not design:
+        raise RuntimeError("No active design.")
+
+    timeline = design.timeline
+    marker = timeline.markerPosition
+    items = []
+
+    for i in range(timeline.count):
+        item = timeline.item(i)
+        entry = {
+            "index": i,
+            "suppressed": item.isSuppressed,
+            "rolled_back": i >= marker,
+        }
+
+        # Get the entity (feature, sketch, etc.)
+        entity = item.entity
+        if entity:
+            entry["type"] = type(entity).__name__
+            if hasattr(entity, "name"):
+                entry["name"] = entity.name
+            # For features, show the feature type
+            if hasattr(entity, "featureType"):
+                entry["feature_type"] = str(entity.featureType)
+        else:
+            entry["type"] = "unknown"
+
+        items.append(entry)
+
+    return {
+        "items": items,
+        "count": timeline.count,
+        "marker_position": marker,
+    }
+
+
+def delete_feature(params: dict) -> dict:
+    """Delete a feature or sketch by timeline index or name."""
+    app = adsk.core.Application.get()
+    design = adsk.fusion.Design.cast(app.activeProduct)
+    if not design:
+        raise RuntimeError("No active design.")
+
+    timeline = design.timeline
+
+    # Find the timeline item
+    target = None
+    if "index" in params:
+        idx = params["index"]
+        if idx < 0 or idx >= timeline.count:
+            raise ValueError(f"Timeline index {idx} out of range (0-{timeline.count-1})")
+        target = timeline.item(idx)
+    elif "name" in params:
+        name = params["name"]
+        for i in range(timeline.count):
+            item = timeline.item(i)
+            entity = item.entity
+            if entity and hasattr(entity, "name") and entity.name == name:
+                target = item
+                break
+        if not target:
+            raise ValueError(f"No timeline item found with name: {name}")
+    else:
+        raise ValueError("Specify 'index' or 'name' to identify the item to delete.")
+
+    entity = target.entity
+    deleted_info = {
+        "type": type(entity).__name__ if entity else "unknown",
+        "name": entity.name if entity and hasattr(entity, "name") else "unknown",
+    }
+
+    # Delete the entity
+    if entity and hasattr(entity, "deleteMe"):
+        ok = entity.deleteMe()
+        if not ok:
+            raise RuntimeError(f"deleteMe() returned False for {deleted_info}")
+    else:
+        raise RuntimeError(f"Cannot delete: {deleted_info}")
+
+    return {
+        "deleted": deleted_info,
+        "timeline_count": timeline.count,
+    }
+
+
 ACTIONS = {
     "ping": ping,
     "status": status,
     "debug_plane": debug_plane,
     "undo": undo,
     "redo": redo,
+    "get_timeline": get_timeline,
+    "delete_feature": delete_feature,
 }
