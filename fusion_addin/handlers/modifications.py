@@ -377,9 +377,9 @@ def cut_by_plane(params: dict) -> dict:
     # position it, then subtract from the target body.
     # This avoids needing ConstructionPlane (which requires existing geometry refs).
 
-    # Create a large slab (200x200x200 mm half-space approximation)
-    slab_size = 20.0  # 200mm in cm
-    slab_thick = 10.0  # 100mm thick (covers any body)
+    # Create a large slab to act as cutting half-space
+    slab_size = 50.0  # 500mm in cm (covers bodies up to ~350mm diagonal)
+    slab_thick = 50.0  # 500mm thick
 
     # The slab starts at the plane and extends in the normal direction
     # We need to orient it so its "top" face aligns with the cutting plane
@@ -438,6 +438,7 @@ def cut_by_plane(params: dict) -> dict:
 
     # Subtract slab from target body
     vol_before = body.volume
+    face_count_before = body.faces.count
     combine_feats = root.features.combineFeatures
     tool_bodies = adsk.core.ObjectCollection.create()
     tool_bodies.add(slab_body)
@@ -449,6 +450,18 @@ def cut_by_plane(params: dict) -> dict:
     result = body_info(body)
     result["volume_before_cm3"] = vol_before
     result["volume_delta_cm3"] = round(result["volume_cm3"] - vol_before, 6)
+    result["face_count_before"] = face_count_before
+    result["face_count_after"] = body.faces.count
+
+    # Validation warnings
+    warnings = []
+    if abs(result["volume_delta_cm3"]) < 1e-6:
+        warnings.append("WARNING: volume unchanged — cut may not have intersected the body. Check slab size or plane position.")
+    if body.faces.count <= face_count_before:
+        warnings.append("WARNING: face count did not increase — cut may be incomplete.")
+    if warnings:
+        result["warnings"] = warnings
+
     return result
 
 

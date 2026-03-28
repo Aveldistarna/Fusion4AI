@@ -97,8 +97,68 @@ def debug_plane(params: dict) -> dict:
     return results
 
 
+def undo(params: dict) -> dict:
+    """Undo the last operation(s) in the design timeline."""
+    app = adsk.core.Application.get()
+    design = adsk.fusion.Design.cast(app.activeProduct)
+    if not design:
+        raise RuntimeError("No active design.")
+
+    count = params.get("count", 1)
+    timeline = design.timeline
+    total = timeline.count
+
+    if total == 0:
+        return {"message": "Nothing to undo.", "timeline_count": 0}
+
+    undone = 0
+    for _ in range(count):
+        if timeline.count == 0:
+            break
+        # Move the marker back by one
+        marker = timeline.markerPosition
+        if marker <= 0:
+            break
+        timeline.markerPosition = marker - 1
+        undone += 1
+
+    return {
+        "undone": undone,
+        "timeline_position": timeline.markerPosition,
+        "timeline_count": timeline.count,
+    }
+
+
+def redo(params: dict) -> dict:
+    """Redo previously undone operation(s)."""
+    app = adsk.core.Application.get()
+    design = adsk.fusion.Design.cast(app.activeProduct)
+    if not design:
+        raise RuntimeError("No active design.")
+
+    count = params.get("count", 1)
+    timeline = design.timeline
+    total = timeline.count
+
+    redone = 0
+    for _ in range(count):
+        marker = timeline.markerPosition
+        if marker >= total:
+            break
+        timeline.markerPosition = marker + 1
+        redone += 1
+
+    return {
+        "redone": redone,
+        "timeline_position": timeline.markerPosition,
+        "timeline_count": timeline.count,
+    }
+
+
 ACTIONS = {
     "ping": ping,
     "status": status,
     "debug_plane": debug_plane,
+    "undo": undo,
+    "redo": redo,
 }

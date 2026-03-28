@@ -120,4 +120,50 @@ export function register(server: McpServer, client: FusionClient): void {
       }
     }
   );
+
+  // ── fusion_undo ──
+  server.tool(
+    "fusion_undo",
+    "Undo the last operation(s) in the Fusion design timeline.",
+    {
+      count: z.number().int().positive().optional()
+        .describe("Number of operations to undo (default: 1)"),
+    },
+    async ({ count }) => {
+      try {
+        const result = await client.request("session", "undo", { count });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── fusion_redo ──
+  server.tool(
+    "fusion_redo",
+    "Redo previously undone operation(s).",
+    {
+      count: z.number().int().positive().optional()
+        .describe("Number of operations to redo (default: 1)"),
+    },
+    async ({ count }) => {
+      try {
+        const result = await client.request("session", "redo", { count });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
 }
