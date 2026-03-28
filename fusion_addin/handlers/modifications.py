@@ -29,9 +29,9 @@ def boolean_op(params: dict) -> dict:
     root = design.rootComponent
 
     op_map = {
-        "union": adsk.fusion.BooleanTypes.UnionBooleanType,
-        "subtract": adsk.fusion.BooleanTypes.DifferenceBooleanType,
-        "intersect": adsk.fusion.BooleanTypes.IntersectionBooleanType,
+        "union": adsk.fusion.FeatureOperations.JoinFeatureOperation,
+        "subtract": adsk.fusion.FeatureOperations.CutFeatureOperation,
+        "intersect": adsk.fusion.FeatureOperations.IntersectFeatureOperation,
     }
 
     operation = params["operation"].lower()
@@ -46,16 +46,43 @@ def boolean_op(params: dict) -> dict:
     if not tool:
         raise ValueError(f"Tool body not found: {params['tool_body']}")
 
+    # Capture volume before operation
+    vol_before = target.volume
+
     combine_feats = root.features.combineFeatures
-    combine_input = combine_feats.createInput(target, adsk.core.ObjectCollection.create())
-    combine_input.toolBodies.add(tool)
+    tool_bodies = adsk.core.ObjectCollection.create()
+    tool_bodies.add(tool)
+    combine_input = combine_feats.createInput(target, tool_bodies)
     combine_input.operation = op_map[operation]
     combine_input.isKeepToolBodies = params.get("keep_tool", False)
 
+    # Debug: verify inputs
+    debug = {
+        "target_name": target.name,
+        "target_volume": target.volume,
+        "tool_name": tool.name,
+        "tool_volume": tool.volume,
+        "tool_bodies_count": tool_bodies.count,
+        "operation": operation,
+    }
+
     combine = combine_feats.add(combine_input)
+
+    if not combine:
+        raise RuntimeError(f"combineFeatures.add returned None. Debug: {debug}")
+
+    # Check if combine produced any bodies
+    if combine.bodies.count == 0:
+        raise RuntimeError(f"Combine produced 0 bodies. Debug: {debug}")
+
     result_body = combine.bodies.item(0)
 
-    return body_info(result_body)
+    # Get info after operation
+    result = body_info(result_body)
+    result["volume_before_cm3"] = vol_before
+    result["volume_delta_cm3"] = round(result["volume_cm3"] - vol_before, 6)
+    result["_debug"] = debug
+    return result
 
 
 # ── Move / Copy ──
