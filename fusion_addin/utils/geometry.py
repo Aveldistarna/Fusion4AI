@@ -46,6 +46,19 @@ def resolve_face(
     return None
 
 
+def _edge_direction(edge: adsk.fusion.BRepEdge) -> Optional[Tuple[float, float, float]]:
+    """Get the direction vector of a linear edge, or None if not linear."""
+    geom = edge.geometry
+    if isinstance(geom, adsk.core.Line3D):
+        sp = edge.startVertex.geometry
+        ep = edge.endVertex.geometry
+        dx, dy, dz = ep.x - sp.x, ep.y - sp.y, ep.z - sp.z
+        mag = math.sqrt(dx*dx + dy*dy + dz*dz)
+        if mag > 1e-10:
+            return (dx/mag, dy/mag, dz/mag)
+    return None
+
+
 def resolve_edges(
     body: adsk.fusion.BRepBody, edge_ref: str
 ) -> List[adsk.fusion.BRepEdge]:
@@ -55,12 +68,47 @@ def resolve_edges(
     edge_ref can be:
       - "all": all edges of the body
       - "top", "bottom", etc.: edges belonging to that face
+      - "vertical": edges aligned with Z axis
+      - "horizontal": edges perpendicular to Z axis
+      - "between:face1,face2": edges shared by two faces (e.g. "between:front,right")
       - A comma-separated list of entityTokens
     """
-    if edge_ref.lower() == "all":
+    ref = edge_ref.strip().lower()
+
+    if ref == "all":
         return list(body.edges)
 
-    direction = FACE_DIRECTIONS.get(edge_ref.lower())
+    # Direction-based: vertical/horizontal
+    if ref == "vertical":
+        result = []
+        for edge in body.edges:
+            d = _edge_direction(edge)
+            if d and abs(abs(d[2]) - 1.0) < 0.1:  # aligned with Z
+                result.append(edge)
+        return result
+
+    if ref == "horizontal":
+        result = []
+        for edge in body.edges:
+            d = _edge_direction(edge)
+            if d and abs(d[2]) < 0.1:  # perpendicular to Z
+                result.append(edge)
+        return result
+
+    # Between two faces: "between:front,right"
+    if ref.startswith("between:"):
+        face_names = ref[8:].split(",")
+        if len(face_names) != 2:
+            return []
+        face1 = resolve_face(body, face_names[0].strip())
+        face2 = resolve_face(body, face_names[1].strip())
+        if not face1 or not face2:
+            return []
+        edges1 = set(e.entityToken for e in face1.edges)
+        return [e for e in face2.edges if e.entityToken in edges1]
+
+    # Semantic face name
+    direction = FACE_DIRECTIONS.get(ref)
     if direction:
         face = _find_face_by_normal(body, direction)
         if face:

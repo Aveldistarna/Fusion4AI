@@ -92,7 +92,7 @@ export function register(server: McpServer, client: FusionClient): void {
     {
       body_name: z.string().describe("Body name or entityToken"),
       radius: z.number().positive().describe("Fillet radius in mm"),
-      edges: z.string().optional().describe("Edge selection: 'all', 'top', 'bottom', etc. (default: 'all')"),
+      edges: z.string().optional().describe("Edge selection: 'all', 'vertical', 'horizontal', 'top', 'bottom', 'front', 'back', 'left', 'right', 'between:face1,face2' (e.g. 'between:front,right'), or comma-separated edge IDs (default: 'all')"),
     },
     async ({ body_name, radius, edges }) => {
       try {
@@ -118,7 +118,7 @@ export function register(server: McpServer, client: FusionClient): void {
     {
       body_name: z.string().describe("Body name or entityToken"),
       distance: z.number().positive().describe("Chamfer distance in mm"),
-      edges: z.string().optional().describe("Edge selection: 'all', 'top', 'bottom', etc. (default: 'all')"),
+      edges: z.string().optional().describe("Edge selection: 'all', 'vertical', 'horizontal', 'top', 'bottom', 'front', 'back', 'left', 'right', 'between:face1,face2', or comma-separated edge IDs (default: 'all')"),
     },
     async ({ body_name, distance, edges }) => {
       try {

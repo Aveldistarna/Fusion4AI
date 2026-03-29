@@ -41,7 +41,7 @@ def _apply_boolean(params: dict, design: adsk.fusion.Design, new_body: adsk.fusi
         "intersect": adsk.fusion.FeatureOperations.IntersectFeatureOperation,
     }
     op = op_map.get(boolean_op.lower())
-    if not op:
+    if op is None:
         raise ValueError(f"Unknown boolean operation: {boolean_op}. Use union/subtract/intersect.")
 
     vol_before = target.volume
