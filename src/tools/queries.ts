@@ -53,11 +53,13 @@ export function register(server: McpServer, client: FusionClient): void {
       output_path: z.string().describe("File path to save the image (e.g. C:/temp/view.png)"),
       width: z.number().int().positive().optional().describe("Image width in pixels (default: 1920)"),
       height: z.number().int().positive().optional().describe("Image height in pixels (default: 1080)"),
+      focus: z.enum(["selection", "fit"]).optional()
+        .describe("Camera focus: 'selection' = look at selected face/body from its normal direction, 'fit' = fit all geometry in view"),
     },
-    async ({ output_path, width, height }) => {
+    async ({ output_path, width, height, focus }) => {
       try {
         const result = await client.request("queries", "screenshot", {
-          output_path, width, height,
+          output_path, width, height, focus,
         });
         return {
           content: [{ type: "text" as const, text: `Screenshot saved: ${result.path} (${result.width}x${result.height})` }],

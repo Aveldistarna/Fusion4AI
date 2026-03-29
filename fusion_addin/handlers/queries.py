@@ -86,7 +86,7 @@ def get_faces(params: dict) -> dict:
 
 
 def screenshot(params: dict) -> dict:
-    """Capture the current viewport to a file."""
+    """Capture the current viewport to a file. Optionally focus on selection or a specific point."""
     app = adsk.core.Application.get()
     viewport = app.activeViewport
 
@@ -99,6 +99,55 @@ def screenshot(params: dict) -> dict:
 
     width = params.get("width", 1920)
     height = params.get("height", 1080)
+
+    # Camera control
+    focus = params.get("focus")
+    if focus == "selection":
+        # Look at the selected face/body from the direction of its normal
+        ui = app.userInterface
+        selections = ui.activeSelections
+        if selections.count > 0:
+            entity = selections.item(0).entity
+            target_pt = None
+            eye_dir = None
+
+            if isinstance(entity, adsk.fusion.BRepFace):
+                n = face_normal(entity)
+                c = face_center(entity)
+                if c and n:
+                    target_pt = adsk.core.Point3D.create(c[0], c[1], c[2])
+                    # Eye position: face center + normal * distance
+                    dist = 15.0  # 150mm viewing distance in cm
+                    eye_dir = (n[0], n[1], n[2])
+            elif isinstance(entity, adsk.fusion.BRepBody):
+                bb = entity.boundingBox
+                cx = (bb.minPoint.x + bb.maxPoint.x) / 2
+                cy = (bb.minPoint.y + bb.maxPoint.y) / 2
+                cz = (bb.minPoint.z + bb.maxPoint.z) / 2
+                target_pt = adsk.core.Point3D.create(cx, cy, cz)
+                eye_dir = (1, 1, 1)  # isometric view
+                dist = max(bb.maxPoint.x - bb.minPoint.x,
+                          bb.maxPoint.y - bb.minPoint.y,
+                          bb.maxPoint.z - bb.minPoint.z) * 2
+
+            if target_pt and eye_dir:
+                import math
+                mag = math.sqrt(eye_dir[0]**2 + eye_dir[1]**2 + eye_dir[2]**2)
+                camera = viewport.camera
+                camera.target = target_pt
+                camera.eye = adsk.core.Point3D.create(
+                    target_pt.x + eye_dir[0]/mag * dist,
+                    target_pt.y + eye_dir[1]/mag * dist,
+                    target_pt.z + eye_dir[2]/mag * dist,
+                )
+                camera.upVector = adsk.core.Vector3D.create(0, 0, 1)
+                camera.isFitView = True
+                camera.isSmoothTransition = False
+                viewport.camera = camera
+                viewport.fit()
+
+    elif focus == "fit":
+        viewport.fit()
 
     viewport.saveAsImageFile(output_path, width, height)
 
