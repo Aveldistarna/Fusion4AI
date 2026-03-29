@@ -373,25 +373,16 @@ def cut_by_plane(params: dict) -> dict:
     normal = adsk.core.Vector3D.create(nm[0], nm[1], nm[2])
     normal.normalize()
 
-    # Strategy: create a large thin cutting slab, orient it using the normal,
-    # position it, then subtract from the target body.
-    # This avoids needing ConstructionPlane (which requires existing geometry refs).
+    # Create slab via sketch+extrude, orient with normal, then subtract from target.
 
-    # Create a large slab to act as cutting half-space
-    slab_size = 50.0  # 500mm in cm (covers bodies up to ~350mm diagonal)
+    slab_size = 50.0  # 500mm in cm
     slab_thick = 50.0  # 500mm thick
 
-    # The slab starts at the plane and extends in the normal direction
-    # We need to orient it so its "top" face aligns with the cutting plane
-
-    # Build rotation from Z-axis to the desired normal
-    # Default slab normal is (0, 0, 1), we need to rotate to target normal
     z_axis = adsk.core.Vector3D.create(0, 0, 1)
 
-    # Create the slab centered at origin first
-    sketches = root.sketches
+    # Create slab at origin on XY plane
     xy_plane = root.xYConstructionPlane
-    sketch = sketches.add(xy_plane)
+    sketch = root.sketches.add(xy_plane)
     half = slab_size / 2
     sketch.sketchCurves.sketchLines.addTwoPointRectangle(
         adsk.core.Point3D.create(-half, -half, 0),
@@ -406,18 +397,16 @@ def cut_by_plane(params: dict) -> dict:
     ext_input.setDistanceExtent(False, adsk.core.ValueInput.createByReal(slab_thick))
     ext = extrudes.add(ext_input)
     slab_body = ext.bodies.item(0)
-    slab_body.name = "_cut_slab_temp"
 
     # Rotate slab to align with target normal
     move_feats = root.features.moveFeatures
-    dot = z_axis.x * normal.x + z_axis.y * normal.y + z_axis.z * normal.z
-    if dot < 0.9999:  # not already aligned
-        if dot > -0.9999:  # not opposite
+    dot_val = z_axis.x * normal.x + z_axis.y * normal.y + z_axis.z * normal.z
+    if dot_val < 0.9999:
+        if dot_val > -0.9999:
             rot_axis = z_axis.crossProduct(normal)
             rot_axis.normalize()
-            rot_angle = math.acos(max(-1, min(1, dot)))
+            rot_angle = math.acos(max(-1, min(1, dot_val)))
         else:
-            # 180 degree rotation, pick any perpendicular axis
             rot_axis = adsk.core.Vector3D.create(1, 0, 0)
             rot_angle = math.pi
 
@@ -425,16 +414,14 @@ def cut_by_plane(params: dict) -> dict:
         slab_col.add(slab_body)
         rot_transform = adsk.core.Matrix3D.create()
         rot_transform.setToRotation(rot_angle, rot_axis, adsk.core.Point3D.create(0, 0, 0))
-        move_input = move_feats.createInput(slab_col, rot_transform)
-        move_feats.add(move_input)
+        move_feats.add(move_feats.createInput(slab_col, rot_transform))
 
     # Move slab to the plane point
     slab_col2 = adsk.core.ObjectCollection.create()
     slab_col2.add(slab_body)
     translate = adsk.core.Matrix3D.create()
     translate.translation = adsk.core.Vector3D.create(point.x, point.y, point.z)
-    move_input2 = move_feats.createInput(slab_col2, translate)
-    move_feats.add(move_input2)
+    move_feats.add(move_feats.createInput(slab_col2, translate))
 
     # Subtract slab from target body
     vol_before = body.volume
@@ -446,6 +433,10 @@ def cut_by_plane(params: dict) -> dict:
     combine_input.operation = adsk.fusion.FeatureOperations.CutFeatureOperation
     combine_input.isKeepToolBodies = False
     combine_feats.add(combine_input)
+
+    # Note: intermediate features (sketch, extrude, moves) remain in timeline
+    # because CombineFeature depends on them. They cannot be safely deleted.
+    # The slab body itself is consumed by the combine (isKeepToolBodies=False).
 
     result = body_info(body)
     result["volume_before_cm3"] = vol_before
