@@ -170,20 +170,35 @@ def get_timeline(params: dict) -> dict:
         item = timeline.item(i)
         entry = {
             "index": i,
-            "suppressed": item.isSuppressed,
             "rolled_back": i >= marker,
         }
 
+        try:
+            entry["suppressed"] = item.isSuppressed
+        except Exception:
+            entry["suppressed"] = False
+
+        try:
+            # Check if this is a group
+            if item.isGroup:
+                group = adsk.fusion.TimelineGroup.cast(item)
+                entry["type"] = "Group"
+                entry["group_count"] = group.count if group else 0
+                items.append(entry)
+                continue
+        except Exception:
+            pass
+
         # Get the entity (feature, sketch, etc.)
-        entity = item.entity
-        if entity:
-            entry["type"] = type(entity).__name__
-            if hasattr(entity, "name"):
-                entry["name"] = entity.name
-            # For features, show the feature type
-            if hasattr(entity, "featureType"):
-                entry["feature_type"] = str(entity.featureType)
-        else:
+        try:
+            entity = item.entity
+            if entity:
+                entry["type"] = type(entity).__name__
+                if hasattr(entity, "name"):
+                    entry["name"] = entity.name
+            else:
+                entry["type"] = "unknown"
+        except Exception:
             entry["type"] = "unknown"
 
         items.append(entry)

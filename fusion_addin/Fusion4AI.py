@@ -100,7 +100,29 @@ class CustomEventHandler(adsk.core.CustomEventHandler):
                 break
 
             try:
+                # Record timeline position before operation
+                timeline_start = None
+                try:
+                    app = adsk.core.Application.get()
+                    design = adsk.fusion.Design.cast(app.activeProduct)
+                    if design and design.designType == adsk.fusion.DesignTypes.ParametricDesignType:
+                        timeline_start = design.timeline.count
+                except Exception:
+                    pass
+
                 result = func(params)
+
+                # Group timeline entries created by this operation
+                try:
+                    if timeline_start is not None and design:
+                        timeline = design.timeline
+                        timeline_end = timeline.count - 1
+                        if timeline_end > timeline_start:
+                            # Multiple timeline items created — group them
+                            timeline.timelineGroups.add(timeline_start, timeline_end)
+                except Exception:
+                    pass  # Grouping failure is non-fatal
+
                 _response_map[req_id] = result
             except Exception as e:
                 traceback.print_exc()
