@@ -244,6 +244,17 @@ def delete_feature(params: dict) -> dict:
     }
 
 
+def new_design(params: dict) -> dict:
+    """Create a new empty design document."""
+    app = adsk.core.Application.get()
+    doc = app.documents.add(adsk.core.DocumentTypes.FusionDesignDocumentType)
+    design = adsk.fusion.Design.cast(app.activeProduct)
+    return {
+        "document": doc.name,
+        "design_type": "parametric" if design.designType == adsk.fusion.DesignTypes.ParametricDesignType else "direct",
+    }
+
+
 ACTIONS = {
     "ping": ping,
     "status": status,
@@ -252,4 +263,5 @@ ACTIONS = {
     "redo": redo,
     "get_timeline": get_timeline,
     "delete_feature": delete_feature,
+    "new_design": new_design,
 }

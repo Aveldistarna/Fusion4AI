@@ -211,4 +211,24 @@ export function register(server: McpServer, client: FusionClient): void {
       }
     }
   );
+
+  // ── new_design ──
+  server.tool(
+    "new_design",
+    "Create a new empty Fusion design document.",
+    {},
+    async () => {
+      try {
+        const result = await client.request("session", "new_design", {});
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
 }

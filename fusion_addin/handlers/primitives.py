@@ -6,7 +6,7 @@ All dimensions are received in mm, converted to cm for Fusion internal units.
 import adsk.core
 import adsk.fusion
 import math
-from ..utils.naming import body_info
+from ..utils.naming import body_info, find_body
 
 
 def _mm2cm(mm: float) -> float:
@@ -19,6 +19,45 @@ def _get_design() -> adsk.fusion.Design:
     if not design:
         raise RuntimeError("No active Fusion design. Please open or create a design.")
     return design
+
+
+def _apply_boolean(params: dict, design: adsk.fusion.Design, new_body: adsk.fusion.BRepBody) -> dict:
+    """If boolean and target params are set, apply boolean operation and return target body info.
+    Otherwise return the new body info."""
+    boolean_op = params.get("boolean")
+    target_name = params.get("target")
+
+    if not boolean_op or not target_name:
+        return body_info(new_body)
+
+    root = design.rootComponent
+    target = find_body(design, target_name)
+    if not target:
+        raise ValueError(f"Target body not found: {target_name}")
+
+    op_map = {
+        "union": adsk.fusion.FeatureOperations.JoinFeatureOperation,
+        "subtract": adsk.fusion.FeatureOperations.CutFeatureOperation,
+        "intersect": adsk.fusion.FeatureOperations.IntersectFeatureOperation,
+    }
+    op = op_map.get(boolean_op.lower())
+    if not op:
+        raise ValueError(f"Unknown boolean operation: {boolean_op}. Use union/subtract/intersect.")
+
+    vol_before = target.volume
+    combine_feats = root.features.combineFeatures
+    tool_bodies = adsk.core.ObjectCollection.create()
+    tool_bodies.add(new_body)
+    combine_input = combine_feats.createInput(target, tool_bodies)
+    combine_input.operation = op
+    combine_input.isKeepToolBodies = False
+    combine_feats.add(combine_input)
+
+    result = body_info(target)
+    result["volume_before_cm3"] = vol_before
+    result["volume_delta_cm3"] = round(result["volume_cm3"] - vol_before, 6)
+    result["boolean"] = boolean_op
+    return result
 
 
 def create_box(params: dict) -> dict:
@@ -70,7 +109,7 @@ def create_box(params: dict) -> dict:
     if params.get("name"):
         body.name = params["name"]
 
-    return body_info(body)
+    return _apply_boolean(params, design, body)
 
 
 def create_cylinder(params: dict) -> dict:
@@ -114,7 +153,7 @@ def create_cylinder(params: dict) -> dict:
     if params.get("name"):
         body.name = params["name"]
 
-    return body_info(body)
+    return _apply_boolean(params, design, body)
 
 
 def create_sphere(params: dict) -> dict:
@@ -172,7 +211,7 @@ def create_sphere(params: dict) -> dict:
         move_input = move_feats.createInput(bodies_collection, transform)
         move_feats.add(move_input)
 
-    return body_info(body)
+    return _apply_boolean(params, design, body)
 
 
 def create_cone(params: dict) -> dict:
@@ -233,7 +272,7 @@ def create_cone(params: dict) -> dict:
         move_input = move_feats.createInput(bodies_collection, transform)
         move_feats.add(move_input)
 
-    return body_info(body)
+    return _apply_boolean(params, design, body)
 
 
 ACTIONS = {
