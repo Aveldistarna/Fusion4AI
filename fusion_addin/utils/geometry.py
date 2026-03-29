@@ -95,6 +95,55 @@ def resolve_edges(
                 result.append(edge)
         return result
 
+    # Perpendicular to selected face(s): "perp_to_selection"
+    # Gets ALL selected faces, finds edges that border the face but are
+    # NOT coplanar with it (i.e., edges that "stand up" from the face).
+    if ref == "perp_to_selection":
+        app = adsk.core.Application.get()
+        ui = app.userInterface
+        selections = ui.activeSelections
+        if selections.count == 0:
+            return []
+
+        # Collect all selected faces
+        selected_faces = []
+        for si in range(selections.count):
+            entity = selections.item(si).entity
+            if isinstance(entity, adsk.fusion.BRepFace):
+                selected_faces.append(entity)
+        if not selected_faces:
+            return []
+
+        # Collect all edge tokens that lie ON any selected face
+        on_face_tokens = set()
+        # Collect all vertex tokens of selected faces
+        face_vert_tokens = set()
+        for sf in selected_faces:
+            for e in sf.edges:
+                on_face_tokens.add(e.entityToken)
+            for v in sf.vertices:
+                face_vert_tokens.add(v.entityToken)
+
+        # Find edges that touch a face vertex but are NOT on the face
+        result = []
+        seen = set()
+        for edge in body.edges:
+            if edge.entityToken in on_face_tokens:
+                continue
+            if edge.entityToken in seen:
+                continue
+            # Check if edge shares a vertex with any selected face
+            touches = False
+            if edge.startVertex and edge.startVertex.entityToken in face_vert_tokens:
+                touches = True
+            if edge.endVertex and edge.endVertex.entityToken in face_vert_tokens:
+                touches = True
+            if touches:
+                result.append(edge)
+                seen.add(edge.entityToken)
+
+        return result
+
     # Between two faces: "between:front,right"
     if ref.startswith("between:"):
         face_names = ref[8:].split(",")
