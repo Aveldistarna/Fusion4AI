@@ -123,7 +123,7 @@ def expand_pattern(pattern_str: str) -> List[Tuple[float, float]]:
 # Validation
 # ---------------------------------------------------------------------------
 
-SHAPE_SIZE_COUNTS = {"box": 3, "cylinder": 2, "sphere": 1, "cone": 3}
+SHAPE_SIZE_COUNTS = {"box": 3, "cylinder": 2, "sphere": 1, "cone": 3, "polygon": None}
 KNOWN_OPS = {"union", "subtract", "fillet", "chamfer", "cut_by_plane", "select"}
 KNOWN_EDGE_REFS = {"all", "vertical", "horizontal", "perp_to_selection",
                    "top", "bottom", "front", "back", "left", "right"}
@@ -149,13 +149,19 @@ def validate_design(design: dict) -> List[str]:
     elif shape not in SHAPE_SIZE_COUNTS:
         errors.append(f"body: unknown shape '{shape}'. Use: {list(SHAPE_SIZE_COUNTS.keys())}")
 
-    size = body.get("size")
-    if not size:
-        errors.append("body: missing 'size'.")
-    elif not isinstance(size, list):
-        errors.append("body: 'size' must be a list of numbers.")
-    elif shape in SHAPE_SIZE_COUNTS and len(size) != SHAPE_SIZE_COUNTS[shape]:
-        errors.append(f"body: shape '{shape}' requires {SHAPE_SIZE_COUNTS[shape]} size values, got {len(size)}.")
+    if shape == "polygon":
+        if not body.get("points"):
+            errors.append("body: polygon shape requires 'points'.")
+        if not body.get("height"):
+            errors.append("body: polygon shape requires 'height'.")
+    else:
+        size = body.get("size")
+        if not size:
+            errors.append("body: missing 'size'.")
+        elif not isinstance(size, list):
+            errors.append("body: 'size' must be a list of numbers.")
+        elif shape in SHAPE_SIZE_COUNTS and SHAPE_SIZE_COUNTS[shape] and len(size) != SHAPE_SIZE_COUNTS[shape]:
+            errors.append(f"body: shape '{shape}' requires {SHAPE_SIZE_COUNTS[shape]} size values, got {len(size)}.")
 
     # features
     features = design.get("features", [])
@@ -193,15 +199,13 @@ def validate_design(design: dict) -> List[str]:
             elif params["shape"] not in SHAPE_SIZE_COUNTS:
                 errors.append(f"{prefix} ({op}): unknown shape '{params['shape']}'.")
 
-            if "size" not in params:
+            if params.get("shape") == "polygon":
+                if "points" not in params:
+                    errors.append(f"{prefix} ({op}): polygon requires 'points'.")
+                if "height" not in params and "size" not in params:
+                    errors.append(f"{prefix} ({op}): polygon requires 'height'.")
+            elif "size" not in params:
                 errors.append(f"{prefix} ({op}): missing 'size'.")
-            elif isinstance(params.get("size"), list) and params.get("shape") in SHAPE_SIZE_COUNTS:
-                expected = SHAPE_SIZE_COUNTS[params["shape"]]
-                actual = len(params["size"])
-                # Allow "through" as last element
-                actual_numeric = sum(1 for s in params["size"] if s != "through")
-                if actual != expected and not (actual == expected and params["size"][-1] == "through"):
-                    pass  # flexible: "through" replaces the height
 
             if "pattern" in params:
                 try:
@@ -239,6 +243,7 @@ SHAPE_PARAMS = {
     "cylinder": lambda size: {"diameter": size[0], "height": size[1]},
     "sphere": lambda size: {"diameter": size[0]},
     "cone": lambda size: {"base_diameter": size[0], "top_diameter": size[1], "height": size[2]},
+    "polygon": None,  # polygon uses 'points' + 'height', not 'size'
 }
 
 SHAPE_CREATORS = {
@@ -246,6 +251,7 @@ SHAPE_CREATORS = {
     "cylinder": primitives.create_cylinder,
     "sphere": primitives.create_sphere,
     "cone": primitives.create_cone,
+    "polygon": primitives.create_polygon,
 }
 
 
@@ -287,11 +293,13 @@ def execute_design(params: dict) -> dict:
     # --- Step 0: Create base body (unless resuming) ---
     if resume_from == 0:
         shape = body_spec["shape"]
-        size = body_spec["size"]
         if shape not in SHAPE_PARAMS:
             raise ValueError(f"Unknown shape: {shape}. Use: {list(SHAPE_PARAMS.keys())}")
 
-        create_params = SHAPE_PARAMS[shape](size)
+        if shape == "polygon":
+            create_params = {"points": body_spec["points"], "height": body_spec["height"]}
+        else:
+            create_params = SHAPE_PARAMS[shape](body_spec["size"])
         create_params["name"] = design_name
         creator = SHAPE_CREATORS[shape]
 
@@ -355,7 +363,7 @@ def execute_design(params: dict) -> dict:
             # --- union / subtract ---
             if op_type in ("union", "subtract"):
                 shape = op_params["shape"]
-                size = op_params["size"]
+                size = op_params.get("size")
                 at_ref = op_params.get("at")
                 pattern_str = op_params.get("pattern")
 
@@ -363,11 +371,12 @@ def execute_design(params: dict) -> dict:
                 base_pos = resolve_position(at_ref, bbox)
 
                 # Handle "through" height
-                height_idx = 1 if shape == "cylinder" else 2
-                if len(size) > height_idx and size[height_idx] == "through":
-                    diag = math.sqrt(sum((mx - mn) ** 2 for mn, mx in zip(bbox["min"], bbox["max"])))
-                    size = list(size)
-                    size[height_idx] = diag * 2
+                if size:
+                    height_idx = 1 if shape == "cylinder" else 2
+                    if len(size) > height_idx and size[height_idx] == "through":
+                        diag = math.sqrt(sum((mx - mn) ** 2 for mn, mx in zip(bbox["min"], bbox["max"])))
+                        size = list(size)
+                        size[height_idx] = diag * 2
 
                 # Expand pattern or single position
                 if pattern_str:
@@ -377,7 +386,10 @@ def execute_design(params: dict) -> dict:
 
                 for dx, dy in offsets:
                     pos = [base_pos[0] + dx, base_pos[1] + dy, base_pos[2]]
-                    create_params = SHAPE_PARAMS[shape](size)
+                    if shape == "polygon":
+                        create_params = {"points": op_params["points"], "height": op_params.get("height", size[0] if size else 1)}
+                    else:
+                        create_params = SHAPE_PARAMS[shape](size)
                     create_params["position"] = pos
                     create_params["boolean"] = op_type
                     create_params["target"] = body_name

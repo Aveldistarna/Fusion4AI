@@ -141,4 +141,37 @@ export function register(server: McpServer, client: FusionClient): void {
       }
     }
   );
+
+  // ── create_polygon ──
+  server.tool(
+    "create_polygon",
+    "Create an extruded polygon from a list of 2D points. Points define the cross-section, extruded along Z. Use this for arbitrary cross-sections like T-slots, channels, brackets, etc.",
+    {
+      points: z.array(z.tuple([z.number(), z.number()]))
+        .describe("2D points [[x,y], ...] in mm defining the polygon outline (closed automatically)"),
+      height: z.number().positive().describe("Extrusion height in mm (Z axis)"),
+      name: z.string().optional().describe("Name for the body"),
+      position: z
+        .tuple([z.number(), z.number(), z.number()])
+        .optional()
+        .describe("Position offset [x, y, z] in mm (default: origin)"),
+      boolean: booleanParam,
+      target: targetParam,
+    },
+    async ({ points, height, name, position, boolean: boolOp, target }) => {
+      try {
+        const result = await client.request("primitives", "create_polygon", {
+          points, height, name, position, boolean: boolOp, target,
+        });
+        return {
+          content: [{ type: "text" as const, text: formatResult(result) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
 }

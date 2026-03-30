@@ -275,9 +275,62 @@ def create_cone(params: dict) -> dict:
     return _apply_boolean(params, design, body)
 
 
+def create_polygon(params: dict) -> dict:
+    """Create an extruded polygon from a list of 2D points.
+    Points define the cross-section on the XY plane, extruded along Z."""
+    design = _get_design()
+    root = design.rootComponent
+
+    points = params["points"]  # list of [x, y] in mm
+    h = _mm2cm(params["height"])
+    pos = params.get("position", [0, 0, 0])
+    cx, cy, cz = _mm2cm(pos[0]), _mm2cm(pos[1]), _mm2cm(pos[2])
+
+    if len(points) < 3:
+        raise ValueError("Polygon requires at least 3 points.")
+
+    # Sketch plane
+    xy_plane = root.xYConstructionPlane
+    if abs(cz) > 1e-8:
+        planes = root.constructionPlanes
+        plane_input = planes.createInput()
+        plane_input.setByOffset(xy_plane, adsk.core.ValueInput.createByReal(cz))
+        sketch_plane = planes.add(plane_input)
+    else:
+        sketch_plane = xy_plane
+
+    sketch = root.sketches.add(sketch_plane)
+    lines = sketch.sketchCurves.sketchLines
+
+    # Draw closed polygon
+    pts = [adsk.core.Point3D.create(_mm2cm(p[0]) + cx, _mm2cm(p[1]) + cy, 0) for p in points]
+    for i in range(len(pts)):
+        lines.addByTwoPoints(pts[i], pts[(i + 1) % len(pts)])
+
+    if sketch.profiles.count == 0:
+        raise RuntimeError("Polygon sketch produced no profile. Check that points form a closed shape.")
+
+    profile = sketch.profiles.item(0)
+
+    # Extrude
+    extrudes = root.features.extrudeFeatures
+    ext_input = extrudes.createInput(
+        profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation
+    )
+    ext_input.setDistanceExtent(False, adsk.core.ValueInput.createByReal(h))
+    ext = extrudes.add(ext_input)
+
+    body = ext.bodies.item(0)
+    if params.get("name"):
+        body.name = params["name"]
+
+    return _apply_boolean(params, design, body)
+
+
 ACTIONS = {
     "create_box": create_box,
     "create_cylinder": create_cylinder,
     "create_sphere": create_sphere,
     "create_cone": create_cone,
+    "create_polygon": create_polygon,
 }
