@@ -120,6 +120,117 @@ def expand_pattern(pattern_str: str) -> List[Tuple[float, float]]:
 
 
 # ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+
+SHAPE_SIZE_COUNTS = {"box": 3, "cylinder": 2, "sphere": 1, "cone": 3}
+KNOWN_OPS = {"union", "subtract", "fillet", "chamfer", "cut_by_plane", "select"}
+KNOWN_EDGE_REFS = {"all", "vertical", "horizontal", "perp_to_selection",
+                   "top", "bottom", "front", "back", "left", "right"}
+
+
+def validate_design(design: dict) -> List[str]:
+    """Validate a parsed design script. Returns a list of error messages (empty = valid)."""
+    errors = []
+
+    # body section
+    body = design.get("body")
+    if not body:
+        errors.append("Missing 'body' section.")
+        return errors
+
+    if not isinstance(body, dict):
+        errors.append("'body' must be a mapping with 'shape' and 'size'.")
+        return errors
+
+    shape = body.get("shape")
+    if not shape:
+        errors.append("body: missing 'shape'.")
+    elif shape not in SHAPE_SIZE_COUNTS:
+        errors.append(f"body: unknown shape '{shape}'. Use: {list(SHAPE_SIZE_COUNTS.keys())}")
+
+    size = body.get("size")
+    if not size:
+        errors.append("body: missing 'size'.")
+    elif not isinstance(size, list):
+        errors.append("body: 'size' must be a list of numbers.")
+    elif shape in SHAPE_SIZE_COUNTS and len(size) != SHAPE_SIZE_COUNTS[shape]:
+        errors.append(f"body: shape '{shape}' requires {SHAPE_SIZE_COUNTS[shape]} size values, got {len(size)}.")
+
+    # features
+    features = design.get("features", [])
+    if not isinstance(features, list):
+        errors.append("'features' must be a list.")
+        return errors
+
+    for i, feature in enumerate(features):
+        prefix = f"feature[{i}]"
+        if not isinstance(feature, dict):
+            errors.append(f"{prefix}: must be a mapping.")
+            continue
+
+        # Find the operation key
+        op_keys = [k for k in feature if k in KNOWN_OPS]
+        if len(op_keys) == 0:
+            errors.append(f"{prefix}: no known operation. Keys: {list(feature.keys())}. Use: {KNOWN_OPS}")
+            continue
+        if len(op_keys) > 1:
+            errors.append(f"{prefix}: multiple operations in one feature: {op_keys}")
+            continue
+
+        op = op_keys[0]
+        params = feature[op]
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            errors.append(f"{prefix} ({op}): parameters must be a mapping, got {type(params).__name__}.")
+            continue
+
+        # Validate union/subtract
+        if op in ("union", "subtract"):
+            if "shape" not in params:
+                errors.append(f"{prefix} ({op}): missing 'shape'.")
+            elif params["shape"] not in SHAPE_SIZE_COUNTS:
+                errors.append(f"{prefix} ({op}): unknown shape '{params['shape']}'.")
+
+            if "size" not in params:
+                errors.append(f"{prefix} ({op}): missing 'size'.")
+            elif isinstance(params.get("size"), list) and params.get("shape") in SHAPE_SIZE_COUNTS:
+                expected = SHAPE_SIZE_COUNTS[params["shape"]]
+                actual = len(params["size"])
+                # Allow "through" as last element
+                actual_numeric = sum(1 for s in params["size"] if s != "through")
+                if actual != expected and not (actual == expected and params["size"][-1] == "through"):
+                    pass  # flexible: "through" replaces the height
+
+            if "pattern" in params:
+                try:
+                    expand_pattern(params["pattern"])
+                except ValueError as e:
+                    errors.append(f"{prefix} ({op}): invalid pattern: {e}")
+
+        # Validate fillet/chamfer
+        elif op == "fillet":
+            if "radius" not in params:
+                errors.append(f"{prefix} (fillet): missing 'radius'.")
+            edges = params.get("edges", "all")
+            if not edges.startswith("between:") and edges not in KNOWN_EDGE_REFS:
+                errors.append(f"{prefix} (fillet): unknown edges '{edges}'.")
+
+        elif op == "chamfer":
+            if "distance" not in params:
+                errors.append(f"{prefix} (chamfer): missing 'distance'.")
+
+        elif op == "cut_by_plane":
+            if "point" not in params:
+                errors.append(f"{prefix} (cut_by_plane): missing 'point'.")
+            if "normal" not in params:
+                errors.append(f"{prefix} (cut_by_plane): missing 'normal'.")
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
 # Shape parameter mapping
 # ---------------------------------------------------------------------------
 
@@ -157,9 +268,13 @@ def execute_design(params: dict) -> dict:
     except Exception as e:
         raise ValueError(f"Failed to parse design script: {e}")
 
-    # Validate top-level structure
-    if "body" not in design:
-        raise ValueError("Design script must have a 'body' section.")
+    # Validate before execution
+    validation_errors = validate_design(design)
+    if validation_errors:
+        return {
+            "status": "validation_error",
+            "errors": validation_errors,
+        }
 
     body_spec = design["body"]
     features = design.get("features", [])
