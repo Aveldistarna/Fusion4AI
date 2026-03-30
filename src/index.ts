@@ -10,6 +10,7 @@ import { register as registerSession } from "./tools/session.js";
 import { register as registerPrimitives } from "./tools/primitives.js";
 import { register as registerQueries } from "./tools/queries.js";
 import { register as registerModifications } from "./tools/modifications.js";
+import { register as registerDesignScript } from "./tools/design_script.js";
 
 // ---------------------------------------------------------------------------
 // MCP Server
@@ -27,6 +28,7 @@ registerSession(server, fusionClient);
 registerPrimitives(server, fusionClient);
 registerQueries(server, fusionClient);
 registerModifications(server, fusionClient);
+registerDesignScript(server, fusionClient);
 
 // ---------------------------------------------------------------------------
 // Start server

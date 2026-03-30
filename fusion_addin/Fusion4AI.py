@@ -34,7 +34,7 @@ from .handlers import modifications as modifications_handler
 # ---------------------------------------------------------------------------
 
 CUSTOM_EVENT_ID = "fusion4ai_execute"
-RESPONSE_TIMEOUT = 30  # seconds
+RESPONSE_TIMEOUT = 120  # seconds (extended for multi-step design scripts)
 
 # ---------------------------------------------------------------------------
 # Globals (managed by run/stop lifecycle)
@@ -150,11 +150,13 @@ def _get_handler_modules() -> dict:
     from .handlers import primitives as primitives_handler
     from .handlers import queries as queries_handler
     from .handlers import modifications as modifications_handler
+    from .handlers import design_script as design_script_handler
     return {
         "session": session_handler,
         "primitives": primitives_handler,
         "queries": queries_handler,
         "modifications": modifications_handler,
+        "design_script": design_script_handler,
     }
 
 

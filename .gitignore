@@ -3,3 +3,4 @@ dist/
 *.tgz
 __pycache__/
 *.pyc
+fusion_addin/lib/

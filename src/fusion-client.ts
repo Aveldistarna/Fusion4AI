@@ -3,7 +3,7 @@ import { FusionConnection, FusionResponse } from "./types.js";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 7432;
-const REQUEST_TIMEOUT = 30_000;
+const REQUEST_TIMEOUT = 120_000; // 120s for multi-step design scripts
 
 export class FusionClient {
   private host: string = DEFAULT_HOST;
