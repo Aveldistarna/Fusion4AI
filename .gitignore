@@ -4,3 +4,7 @@ dist/
 __pycache__/
 *.pyc
 fusion_addin/lib/
+
+# Sample files (copyrighted datasheets)
+*.pdf
+Sample/
