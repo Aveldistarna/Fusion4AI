@@ -10,6 +10,10 @@ answer different questions:
   intent      — WHY this exists at all
   placement   — WHY it sits at this position/orientation
   dimensions  — WHY it is this size (the arithmetic behind the numbers)
+  shape       — WHAT it is, as its author understood it. Prose about geometry
+                goes stale on the next edit, so writing it stamps a
+                fingerprint of the measured shape; a later mismatch says the
+                sentence now describes a body that no longer exists.
 Prose in any of them decays as the design moves; constraints[] is the half a
 machine re-checks (see constraints.py for the grammar).
 
@@ -35,7 +39,7 @@ ATTR_PROVENANCE = "provenance"
 MAX_PROVENANCE_ENTRIES = 20
 
 # Param keys that are consumed by context embedding, not part of the geometry op
-CONTEXT_PARAM_KEYS = ("intent", "placement", "dimensions", "role",
+CONTEXT_PARAM_KEYS = ("intent", "placement", "dimensions", "shape", "role",
                       "depends_on", "constraints")
 
 
@@ -157,6 +161,7 @@ def merge_context(
     intent: Optional[str] = None,
     placement: Optional[str] = None,
     dimensions: Optional[str] = None,
+    shape: Optional[str] = None,
     role: Optional[str] = None,
     depends_on: Optional[List[str]] = None,
     constraints: Optional[List[str]] = None,
@@ -173,6 +178,15 @@ def merge_context(
         context["placement"] = placement
     if dimensions is not None:
         context["dimensions"] = dimensions
+    if shape is not None:
+        context["shape"] = shape
+        # Stamp what the sentence was written about, so drift is detectable.
+        try:
+            if hasattr(entity, "faces"):
+                from . import shape as shape_tools
+                context["shape_fingerprint"] = shape_tools.fingerprint(entity)
+        except Exception:
+            warnings.append("shape recorded, but its fingerprint could not be taken")
     if role is not None:
         context["role"] = role
     if constraints is not None:
@@ -216,6 +230,7 @@ def try_embed(entity: Any, op: str, params: dict) -> None:
                 intent=params.get("intent"),
                 placement=params.get("placement"),
                 dimensions=params.get("dimensions"),
+                shape=params.get("shape"),
                 role=params.get("role"),
                 depends_on=params.get("depends_on"),
                 constraints=params.get("constraints"),
@@ -371,6 +386,7 @@ def set_context(params: dict) -> dict:
         intent=params.get("intent"),
         placement=params.get("placement"),
         dimensions=params.get("dimensions"),
+        shape=params.get("shape"),
         role=params.get("role"),
         depends_on=params.get("depends_on"),
         constraints=params.get("constraints"),
@@ -495,6 +511,25 @@ def check_integrity(params: dict) -> dict:
                 record["intent"] = context.get("intent")
                 dangling.append(record)
 
+    # A shape description that no longer matches its body is worse than none:
+    # it reads as current and is not. Only geometry can say which it is.
+    stale_shapes = []
+    try:
+        from . import shape as shape_tools
+        for entity, context in live:
+            if not context.get("shape") or not hasattr(entity, "faces"):
+                continue
+            drift = shape_tools.fingerprint_drift(
+                context.get("shape_fingerprint"), shape_tools.fingerprint(entity))
+            if drift:
+                stale_shapes.append({
+                    "body": getattr(entity, "name", "?"),
+                    "declared_shape": context.get("shape"),
+                    "drift": drift,
+                })
+    except Exception:
+        traceback.print_exc()
+
     scan = list_contexts({})
     remaining_orphans = [r for r in orphan_records if not r.get("purged")]
     result = {
@@ -502,9 +537,11 @@ def check_integrity(params: dict) -> dict:
         "dangling_count": len(dangling),
         "orphaned_intent": orphan_records,
         "orphaned_count": len(orphan_records),
+        "stale_shapes": stale_shapes,
+        "stale_shape_count": len(stale_shapes),
         "unannotated_bodies": scan["unannotated_bodies"],
         "annotated_count": scan["annotated_count"],
-        "ok": not dangling and not remaining_orphans,
+        "ok": not dangling and not remaining_orphans and not stale_shapes,
     }
     if purge:
         result["purged_count"] = sum(1 for r in orphan_records if r.get("purged"))
@@ -642,7 +679,8 @@ def what_is_not_recorded(params: dict) -> dict:
     design = _get_design()
     limit = int(params.get("limit") or 40)
 
-    missing = {"intent": [], "placement": [], "dimensions": [], "constraints": []}
+    missing = {"intent": [], "placement": [], "dimensions": [], "shape": [],
+               "constraints": []}
     total = 0
     complete = 0
 
@@ -651,7 +689,7 @@ def what_is_not_recorded(params: dict) -> dict:
         context = _read_json_attr(body, ATTR_CONTEXT) or {}
         name = body.name
         gaps = 0
-        for field in ("intent", "placement", "dimensions"):
+        for field in ("intent", "placement", "dimensions", "shape"):
             if not context.get(field):
                 missing[field].append(name)
                 gaps += 1
@@ -664,7 +702,8 @@ def what_is_not_recorded(params: dict) -> dict:
     for field, names in missing.items():
         result["no_" + field] = names[:limit]
         result["no_%s_count" % field] = len(names)
-    result["ok"] = not any(missing[f] for f in ("intent", "placement", "dimensions"))
+    result["ok"] = not any(missing[f]
+                           for f in ("intent", "placement", "dimensions", "shape"))
     return result
 
 

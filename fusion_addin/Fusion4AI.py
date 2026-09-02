@@ -172,6 +172,7 @@ def _get_handler_modules() -> dict:
     from .handlers import queries as queries_handler
     from .handlers import modifications as modifications_handler
     from .handlers import modules as modules_handler
+    from .handlers import shape as shape_handler
     from .handlers import design_script as design_script_handler
     # Note: context must precede primitives/modifications so importlib.reload
     # refreshes it before its dependents.
@@ -179,6 +180,7 @@ def _get_handler_modules() -> dict:
         "session": session_handler,
         "context": context_handler,
         "modules": modules_handler,
+        "shape": shape_handler,
         "primitives": primitives_handler,
         "queries": queries_handler,
         "modifications": modifications_handler,

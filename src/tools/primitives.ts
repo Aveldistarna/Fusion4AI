@@ -15,6 +15,8 @@ const placementParam = z.string().optional()
   .describe("WHY it sits at this position/orientation — name the relation and what breaks if it moves (e.g. 'flush with the frame's top face so the lid seats flat')");
 const dimensionsParam = z.string().optional()
   .describe("WHY it is this size — the arithmetic behind the numbers (e.g. 'depth 49 = 54 frame width - 5 wall clearance')");
+const shapeParam = z.string().optional()
+  .describe("WHAT this IS, as you understand it — the shape you would have to see to know (e.g. 'rounded-rectangle plate, corners R15'). Recording it stamps a fingerprint of the real geometry so a later edit that makes the sentence wrong is detectable.");
 const constraintsParam = z.array(z.string()).optional()
   .describe("Rules re-measured after every move. Grammar: 'clearance >= 3mm to Cover', 'inside Housing', 'flush Base top', 'aligned Bracket x', 'symmetric_to Leg_L about YZ', 'concentric_with Shaft z'. Anything else is stored but reported as unchecked.");
 
@@ -41,13 +43,14 @@ export function register(server: McpServer, client: FusionClient): void {
       intent: intentParam,
       placement: placementParam,
       dimensions: dimensionsParam,
+      shape: shapeParam,
       constraints: constraintsParam,
       depends_on: dependsOnParam,
     },
-    async ({ width, height, depth, name, position, boolean: boolOp, target, intent, placement, dimensions, constraints, depends_on }) => {
+    async ({ width, height, depth, name, position, boolean: boolOp, target, intent, placement, dimensions, shape, constraints, depends_on }) => {
       try {
         const result = await client.request("primitives", "create_box", {
-          width, height, depth, name, position, boolean: boolOp, target, intent, placement, dimensions, constraints, depends_on,
+          width, height, depth, name, position, boolean: boolOp, target, intent, placement, dimensions, shape, constraints, depends_on,
         });
         return {
           content: [{ type: "text" as const, text: formatResult(result) }],
@@ -78,13 +81,14 @@ export function register(server: McpServer, client: FusionClient): void {
       intent: intentParam,
       placement: placementParam,
       dimensions: dimensionsParam,
+      shape: shapeParam,
       constraints: constraintsParam,
       depends_on: dependsOnParam,
     },
-    async ({ diameter, height, name, position, boolean: boolOp, target, intent, placement, dimensions, constraints, depends_on }) => {
+    async ({ diameter, height, name, position, boolean: boolOp, target, intent, placement, dimensions, shape, constraints, depends_on }) => {
       try {
         const result = await client.request("primitives", "create_cylinder", {
-          diameter, height, name, position, boolean: boolOp, target, intent, placement, dimensions, constraints, depends_on,
+          diameter, height, name, position, boolean: boolOp, target, intent, placement, dimensions, shape, constraints, depends_on,
         });
         return {
           content: [{ type: "text" as const, text: formatResult(result) }],
@@ -114,13 +118,14 @@ export function register(server: McpServer, client: FusionClient): void {
       intent: intentParam,
       placement: placementParam,
       dimensions: dimensionsParam,
+      shape: shapeParam,
       constraints: constraintsParam,
       depends_on: dependsOnParam,
     },
-    async ({ diameter, name, position, boolean: boolOp, target, intent, placement, dimensions, constraints, depends_on }) => {
+    async ({ diameter, name, position, boolean: boolOp, target, intent, placement, dimensions, shape, constraints, depends_on }) => {
       try {
         const result = await client.request("primitives", "create_sphere", {
-          diameter, name, position, boolean: boolOp, target, intent, placement, dimensions, constraints, depends_on,
+          diameter, name, position, boolean: boolOp, target, intent, placement, dimensions, shape, constraints, depends_on,
         });
         return {
           content: [{ type: "text" as const, text: formatResult(result) }],
@@ -152,13 +157,14 @@ export function register(server: McpServer, client: FusionClient): void {
       intent: intentParam,
       placement: placementParam,
       dimensions: dimensionsParam,
+      shape: shapeParam,
       constraints: constraintsParam,
       depends_on: dependsOnParam,
     },
-    async ({ base_diameter, top_diameter, height, name, position, boolean: boolOp, target, intent, placement, dimensions, constraints, depends_on }) => {
+    async ({ base_diameter, top_diameter, height, name, position, boolean: boolOp, target, intent, placement, dimensions, shape, constraints, depends_on }) => {
       try {
         const result = await client.request("primitives", "create_cone", {
-          base_diameter, top_diameter, height, name, position, boolean: boolOp, target, intent, placement, dimensions, constraints, depends_on,
+          base_diameter, top_diameter, height, name, position, boolean: boolOp, target, intent, placement, dimensions, shape, constraints, depends_on,
         });
         return {
           content: [{ type: "text" as const, text: formatResult(result) }],
@@ -190,13 +196,14 @@ export function register(server: McpServer, client: FusionClient): void {
       intent: intentParam,
       placement: placementParam,
       dimensions: dimensionsParam,
+      shape: shapeParam,
       constraints: constraintsParam,
       depends_on: dependsOnParam,
     },
-    async ({ points, height, name, position, boolean: boolOp, target, intent, placement, dimensions, constraints, depends_on }) => {
+    async ({ points, height, name, position, boolean: boolOp, target, intent, placement, dimensions, shape, constraints, depends_on }) => {
       try {
         const result = await client.request("primitives", "create_polygon", {
-          points, height, name, position, boolean: boolOp, target, intent, placement, dimensions, constraints, depends_on,
+          points, height, name, position, boolean: boolOp, target, intent, placement, dimensions, shape, constraints, depends_on,
         });
         return {
           content: [{ type: "text" as const, text: formatResult(result) }],

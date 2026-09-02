@@ -83,6 +83,10 @@ def set_module(params: dict) -> dict:
 
     if params.get("intent") is not None:
         entry["intent"] = params["intent"]
+    if params.get("shape") is not None:
+        # What the part IS, as a whole — the bodies each know their own shape,
+        # nothing else knows what they add up to.
+        entry["shape"] = params["shape"]
     if params.get("area") is not None:
         entry["area"] = _normalize_area(params["area"])
 
@@ -130,6 +134,7 @@ def list_modules(params: dict) -> dict:
             "bodies": members,
             "body_count": len(members),
             "intent": entry.get("intent"),
+            "shape": entry.get("shape"),
             "has_area": bool(entry.get("area")),
         }
         if missing:

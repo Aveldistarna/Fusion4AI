@@ -25,6 +25,11 @@ export function register(server: McpServer, client: FusionClient): void {
       dimensions: z.string().optional()
         .describe("WHY it is this size — the arithmetic behind the numbers " +
           "(e.g. 'depth 49 = 54 frame width - 5 wall clearance')"),
+      shape: z.string().optional()
+        .describe("WHAT this IS, as you understand it right now — the shape you would have to " +
+          "see to know (e.g. 'rounded-rectangle plate, 40x30x10, corners R15 so the sides are " +
+          "fully arced, one 6mm hole through the centre'). Recording this stamps a fingerprint " +
+          "of the actual geometry, so a later edit that makes the sentence wrong is detectable."),
       role: z.string().optional().describe("Functional role (e.g. 'mounting', 'structural', 'clearance', 'cosmetic')"),
       depends_on: z.array(z.string()).optional()
         .describe("Names/tokens of entities this object's position or size depends on"),
@@ -33,10 +38,10 @@ export function register(server: McpServer, client: FusionClient): void {
           "'inside Housing', 'flush Base top', 'aligned Bracket x', 'symmetric_to Leg_L about YZ', " +
           "'concentric_with Shaft z'. Anything else is stored but reported as unchecked."),
     },
-    async ({ target, intent, placement, dimensions, role, depends_on, constraints }) => {
+    async ({ target, intent, placement, dimensions, shape, role, depends_on, constraints }) => {
       try {
         const result = await client.request("context", "set_context", {
-          target, intent, placement, dimensions, role, depends_on, constraints,
+          target, intent, placement, dimensions, shape, role, depends_on, constraints,
         });
         return {
           content: [{ type: "text" as const, text: formatResult(result) }],
@@ -107,6 +112,34 @@ export function register(server: McpServer, client: FusionClient): void {
     async ({ target }) => {
       try {
         const result = await client.request("context", "find_dependents", { target });
+        return {
+          content: [{ type: "text" as const, text: formatResult(result) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── describe_shape ──
+  server.tool(
+    "describe_shape",
+    "Read what a body or a whole part IS, computed from the geometry — extents, how much of its " +
+      "bounding box it fills, the face inventory, openings, symmetry planes. " +
+      "Use this INSTEAD of a screenshot when you need to know the actual shape: image recognition " +
+      "cannot tell R15 from R14, or notice that a fillet swallowed a face entirely. " +
+      "If a shape description was recorded, this also reports whether it still matches the body.",
+    {
+      target: z.string().optional().describe("Body name or entityToken"),
+      module: z.string().optional()
+        .describe("Describe a whole part instead: combined extent, its bodies, how much it fills"),
+    },
+    async ({ target, module }) => {
+      try {
+        const result = await client.request("shape", "describe", { target, module });
         return {
           content: [{ type: "text" as const, text: formatResult(result) }],
         };

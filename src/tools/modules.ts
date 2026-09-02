@@ -32,12 +32,14 @@ export function register(server: McpServer, client: FusionClient): void {
         .describe("Body names that make up this part (replaces the current membership)"),
       intent: z.string().optional()
         .describe("What this part is for — the reason the group exists as a group"),
+      shape: z.string().optional()
+        .describe("WHAT the assembled part IS as a whole — each body knows its own shape, nothing else knows what they add up to"),
       area: areaParam,
     },
-    async ({ name, bodies, intent, area }) => {
+    async ({ name, bodies, intent, shape, area }) => {
       try {
         const result = await client.request("modules", "set_module", {
-          name, bodies, intent, area,
+          name, bodies, intent, shape, area,
         });
         return { content: [{ type: "text" as const, text: formatResult(result) }] };
       } catch (e: any) {
