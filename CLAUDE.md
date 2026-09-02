@@ -29,6 +29,22 @@ AI-driven CAD modeling MCP server for Autodesk Fusion.
 - 角の面取りは `add_fillet(edges="vertical")` で垂直エッジだけを対象にする
 - 斜面のカットは `cut_by_plane(point, normal)` を使う
 
+### 意図コンテキストの埋め込み（空間＝コンテキスト）
+- デザインドキュメント自体が世界モデル。意図はFusion Attributes（グループ `fusion4ai`）として実体に埋め込まれ、セッションを跨いで永続する
+- 形状を作るときは `intent`（なぜ作るのか）を必ず渡す。位置や寸法が他のボディに依存する場合は `depends_on` も渡す
+- 既存デザインで作業を再開したら、まず `get_design_context` で過去の意図を回収する
+- 自分が作っていないオブジェクトを変更・削除する前に、必ず `get_intent` で意図と依存を確認する
+- 削除や大きな変更の前は `find_dependents` で影響範囲を確認する（`safe_to_modify` を見る）
+- ユーザーがGUIで編集した形跡があれば `check_context_integrity` で参照切れを検出し、`set_intent` で修復する
+- 全造形操作の履歴（provenance）は自動記録される。手動で書くのは「意図」だけでよい
+
+### チェックポイントとパーツ単位のやり直し
+- 新しいパーツ（部位）に取りかかる前に `set_checkpoint` を打つ（例: `before Leg_R`）
+- タイムラインは構造化された作業ログ。「どこまで作ったか」はスクリーンショットではなく `get_timeline` で把握する（各項目にラベルと意図が付く）
+- パーツが失敗したら、新しいパーツを作り直すのではなく `rollback_to_checkpoint` でそのパーツだけを巻き戻す
+- `rollback_to_checkpoint` は破壊的（タイムライン項目を完全削除）。このセッションで作っていないものを消す場合はユーザーに確認する
+- `session/undo` はタイムラインマーカーのロールバック（一時的）、`rollback_to_checkpoint` は削除（恒久的）。用途を混同しない
+
 ### 寸法の扱い
 - AIが「知っている」寸法でも、精度に自信がない場合はユーザーに確認する
 - 図面やデータシートが提供されている場合は、そこから正確な値を読み取る

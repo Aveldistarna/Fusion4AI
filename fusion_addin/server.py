@@ -37,8 +37,9 @@ class RequestHandler(BaseHTTPRequestHandler):
         body = self.rfile.read(content_length) if content_length > 0 else b"{}"
         try:
             payload = json.loads(body)
-        except json.JSONDecodeError:
-            self._respond({"success": False, "error": "Invalid JSON body"})
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            # UnicodeDecodeError: body is not valid UTF-8 (e.g. CP932 console).
+            self._respond({"success": False, "error": f"Invalid JSON body: {e}"})
             return
 
         params = payload.get("params", {})

@@ -7,6 +7,10 @@ const booleanParam = z.enum(["union", "subtract", "intersect"]).optional()
   .describe("If set, immediately perform this boolean operation with the target body instead of creating a separate body");
 const targetParam = z.string().optional()
   .describe("Target body name for the boolean operation (required if boolean is set)");
+const intentParam = z.string().optional()
+  .describe("WHY this shape exists — design intent embedded into the model itself (e.g. 'M3 mounting holes for servo bracket'). Strongly recommended: this context persists in the document and survives session restarts.");
+const dependsOnParam = z.array(z.string()).optional()
+  .describe("Names of bodies/features whose position or size this shape depends on (dependency graph for impact analysis)");
 
 function formatResult(result: Record<string, unknown>): string {
   return JSON.stringify(result, null, 2);
@@ -28,11 +32,13 @@ export function register(server: McpServer, client: FusionClient): void {
         .describe("Center position [x, y, z] in mm (default: origin)"),
       boolean: booleanParam,
       target: targetParam,
+      intent: intentParam,
+      depends_on: dependsOnParam,
     },
-    async ({ width, height, depth, name, position, boolean: boolOp, target }) => {
+    async ({ width, height, depth, name, position, boolean: boolOp, target, intent, depends_on }) => {
       try {
         const result = await client.request("primitives", "create_box", {
-          width, height, depth, name, position, boolean: boolOp, target,
+          width, height, depth, name, position, boolean: boolOp, target, intent, depends_on,
         });
         return {
           content: [{ type: "text" as const, text: formatResult(result) }],
@@ -60,11 +66,13 @@ export function register(server: McpServer, client: FusionClient): void {
         .describe("Center of base position [x, y, z] in mm (default: origin)"),
       boolean: booleanParam,
       target: targetParam,
+      intent: intentParam,
+      depends_on: dependsOnParam,
     },
-    async ({ diameter, height, name, position, boolean: boolOp, target }) => {
+    async ({ diameter, height, name, position, boolean: boolOp, target, intent, depends_on }) => {
       try {
         const result = await client.request("primitives", "create_cylinder", {
-          diameter, height, name, position, boolean: boolOp, target,
+          diameter, height, name, position, boolean: boolOp, target, intent, depends_on,
         });
         return {
           content: [{ type: "text" as const, text: formatResult(result) }],
@@ -91,11 +99,13 @@ export function register(server: McpServer, client: FusionClient): void {
         .describe("Center position [x, y, z] in mm (default: origin)"),
       boolean: booleanParam,
       target: targetParam,
+      intent: intentParam,
+      depends_on: dependsOnParam,
     },
-    async ({ diameter, name, position, boolean: boolOp, target }) => {
+    async ({ diameter, name, position, boolean: boolOp, target, intent, depends_on }) => {
       try {
         const result = await client.request("primitives", "create_sphere", {
-          diameter, name, position, boolean: boolOp, target,
+          diameter, name, position, boolean: boolOp, target, intent, depends_on,
         });
         return {
           content: [{ type: "text" as const, text: formatResult(result) }],
@@ -124,11 +134,13 @@ export function register(server: McpServer, client: FusionClient): void {
         .describe("Center of base position [x, y, z] in mm (default: origin)"),
       boolean: booleanParam,
       target: targetParam,
+      intent: intentParam,
+      depends_on: dependsOnParam,
     },
-    async ({ base_diameter, top_diameter, height, name, position, boolean: boolOp, target }) => {
+    async ({ base_diameter, top_diameter, height, name, position, boolean: boolOp, target, intent, depends_on }) => {
       try {
         const result = await client.request("primitives", "create_cone", {
-          base_diameter, top_diameter, height, name, position, boolean: boolOp, target,
+          base_diameter, top_diameter, height, name, position, boolean: boolOp, target, intent, depends_on,
         });
         return {
           content: [{ type: "text" as const, text: formatResult(result) }],
@@ -157,11 +169,13 @@ export function register(server: McpServer, client: FusionClient): void {
         .describe("Position offset [x, y, z] in mm (default: origin)"),
       boolean: booleanParam,
       target: targetParam,
+      intent: intentParam,
+      depends_on: dependsOnParam,
     },
-    async ({ points, height, name, position, boolean: boolOp, target }) => {
+    async ({ points, height, name, position, boolean: boolOp, target, intent, depends_on }) => {
       try {
         const result = await client.request("primitives", "create_polygon", {
-          points, height, name, position, boolean: boolOp, target,
+          points, height, name, position, boolean: boolOp, target, intent, depends_on,
         });
         return {
           content: [{ type: "text" as const, text: formatResult(result) }],

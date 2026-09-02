@@ -7,6 +7,7 @@ import adsk.core
 import adsk.fusion
 import math
 from ..utils.naming import body_info, find_body
+from . import context
 
 
 def _mm2cm(mm: float) -> float:
@@ -28,6 +29,7 @@ def _apply_boolean(params: dict, design: adsk.fusion.Design, new_body: adsk.fusi
     target_name = params.get("target")
 
     if not boolean_op or not target_name:
+        context.try_embed(new_body, params.get("_op", "create"), params)
         return body_info(new_body)
 
     root = design.rootComponent
@@ -51,7 +53,16 @@ def _apply_boolean(params: dict, design: adsk.fusion.Design, new_body: adsk.fusi
     combine_input = combine_feats.createInput(target, tool_bodies)
     combine_input.operation = op
     combine_input.isKeepToolBodies = False
-    combine_feats.add(combine_input)
+    combine = combine_feats.add(combine_input)
+
+    # Provenance goes on the target body (its operation history), but intent
+    # belongs to the boolean feature itself — otherwise successive cuts would
+    # overwrite the target body's own intent.
+    op_name = params.get("_op", "create")
+    provenance_only = {k: v for k, v in params.items() if k not in context.CONTEXT_PARAM_KEYS}
+    context.try_embed(target, op_name, provenance_only)
+    if combine and any(params.get(k) is not None for k in context.CONTEXT_PARAM_KEYS):
+        context.try_embed(combine, op_name, params)
 
     result = body_info(target)
     result["volume_before_cm3"] = vol_before
@@ -62,6 +73,7 @@ def _apply_boolean(params: dict, design: adsk.fusion.Design, new_body: adsk.fusi
 
 def create_box(params: dict) -> dict:
     """Create a rectangular box centered at position."""
+    params.setdefault("_op", "create_box")
     design = _get_design()
     root = design.rootComponent
 
@@ -114,6 +126,7 @@ def create_box(params: dict) -> dict:
 
 def create_cylinder(params: dict) -> dict:
     """Create a cylinder with base center at position."""
+    params.setdefault("_op", "create_cylinder")
     design = _get_design()
     root = design.rootComponent
 
@@ -158,6 +171,7 @@ def create_cylinder(params: dict) -> dict:
 
 def create_sphere(params: dict) -> dict:
     """Create a sphere centered at position using revolve."""
+    params.setdefault("_op", "create_sphere")
     design = _get_design()
     root = design.rootComponent
 
@@ -216,6 +230,7 @@ def create_sphere(params: dict) -> dict:
 
 def create_cone(params: dict) -> dict:
     """Create a cone or frustum using revolve."""
+    params.setdefault("_op", "create_cone")
     design = _get_design()
     root = design.rootComponent
 
@@ -278,6 +293,7 @@ def create_cone(params: dict) -> dict:
 def create_polygon(params: dict) -> dict:
     """Create an extruded polygon from a list of 2D points.
     Points define the cross-section on the XY plane, extruded along Z."""
+    params.setdefault("_op", "create_polygon")
     design = _get_design()
     root = design.rootComponent
 

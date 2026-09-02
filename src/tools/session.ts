@@ -231,4 +231,76 @@ export function register(server: McpServer, client: FusionClient): void {
       }
     }
   );
+
+  // ── set_checkpoint ──
+  server.tool(
+    "set_checkpoint",
+    "Record a named checkpoint at the current end of the timeline. " +
+      "Call this BEFORE starting each new part/section, so a failed attempt can be " +
+      "undone with rollback_to_checkpoint instead of abandoning the design.",
+    {
+      label: z.string().describe("Checkpoint name (e.g. 'before Leg_R', 'bracket done')"),
+    },
+    async ({ label }) => {
+      try {
+        const result = await client.request("session", "set_checkpoint", { label });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── list_checkpoints ──
+  server.tool(
+    "list_checkpoints",
+    "List the recorded timeline checkpoints for the current design.",
+    {},
+    async () => {
+      try {
+        const result = await client.request("session", "list_checkpoints", {});
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── rollback_to_checkpoint ──
+  server.tool(
+    "rollback_to_checkpoint",
+    "PERMANENTLY delete all timeline items created after a checkpoint — undo one failed part " +
+      "while keeping everything built before it. This is destructive (not a timeline marker move); " +
+      "confirm with the user if the work being discarded was not created in this session.",
+    {
+      label: z.string().optional().describe("Checkpoint name to roll back to"),
+      position: z.number().int().min(0).optional()
+        .describe("Timeline position to roll back to (alternative to label)"),
+    },
+    async ({ label, position }) => {
+      try {
+        const result = await client.request("session", "rollback_to_checkpoint", {
+          label, position,
+        });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
 }

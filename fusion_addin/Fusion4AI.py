@@ -112,16 +112,23 @@ class CustomEventHandler(adsk.core.CustomEventHandler):
 
                 result = func(params)
 
-                # Group timeline entries created by this operation
+                # Group timeline entries created by this operation and label
+                # them so the timeline reads as a structured build log.
                 try:
                     if timeline_start is not None and design:
                         timeline = design.timeline
                         timeline_end = timeline.count - 1
+                        label = _timeline_label(params)
                         if timeline_end > timeline_start:
                             # Multiple timeline items created — group them
-                            timeline.timelineGroups.add(timeline_start, timeline_end)
+                            group = timeline.timelineGroups.add(timeline_start, timeline_end)
+                            if group and label:
+                                group.name = label
+                        elif timeline_end == timeline_start and label:
+                            # Single item — rename it directly
+                            timeline.item(timeline_start).name = label
                 except Exception:
-                    pass  # Grouping failure is non-fatal
+                    pass  # Grouping/labeling failure is non-fatal
 
                 _response_map[req_id] = result
             except Exception as e:
@@ -137,9 +144,22 @@ class CustomEventHandler(adsk.core.CustomEventHandler):
 # Wrapped handlers (route through main thread)
 # ---------------------------------------------------------------------------
 
-def _make_main_thread_wrapper(func: Callable) -> Callable:
-    """Wrap a handler function to execute on the main thread."""
+def _timeline_label(params: dict) -> Optional[str]:
+    """Build a timeline label: explicit timeline_label, or '<op> <subject>'."""
+    label = params.get("timeline_label")
+    if not label:
+        op = params.get("_op") or ""
+        subject = params.get("name") or params.get("target") or params.get("body_name") or ""
+        label = f"{op} {subject}".strip()
+    return label[:80] if label else None
+
+
+def _make_main_thread_wrapper(func: Callable, action_name: Optional[str] = None) -> Callable:
+    """Wrap a handler function to execute on the main thread.
+    Injects the action name as params['_op'] for provenance/labeling."""
     def wrapper(params: dict) -> dict:
+        if action_name and "_op" not in params:
+            params["_op"] = action_name
         return execute_on_main_thread(func, params)
     return wrapper
 
@@ -147,12 +167,16 @@ def _make_main_thread_wrapper(func: Callable) -> Callable:
 def _get_handler_modules() -> dict:
     """Return the mapping of handler name -> module."""
     from .handlers import session as session_handler
+    from .handlers import context as context_handler
     from .handlers import primitives as primitives_handler
     from .handlers import queries as queries_handler
     from .handlers import modifications as modifications_handler
     from .handlers import design_script as design_script_handler
+    # Note: context must precede primitives/modifications so importlib.reload
+    # refreshes it before its dependents.
     return {
         "session": session_handler,
+        "context": context_handler,
         "primitives": primitives_handler,
         "queries": queries_handler,
         "modifications": modifications_handler,
@@ -178,7 +202,7 @@ def _register_all_handlers(reload: bool = False) -> dict:
             importlib.reload(module)
             reloaded.append(name)
         wrapped_actions = {
-            action_name: _make_main_thread_wrapper(action_func)
+            action_name: _make_main_thread_wrapper(action_func, action_name)
             for action_name, action_func in module.ACTIONS.items()
         }
         register_handler(name, wrapped_actions)
@@ -204,7 +228,6 @@ def run(context: dict) -> None:
 
     try:
         _app = adsk.core.Application.get()
-        ui = _app.userInterface
 
         # Register CustomEvent for main-thread dispatch
         _custom_event = _app.registerCustomEvent(CUSTOM_EVENT_ID)
@@ -218,11 +241,8 @@ def run(context: dict) -> None:
         _server = Fusion4AIServer()
         _server.start()
 
-        ui.messageBox(
-            "Fusion4AI MCP bridge started.\n"
-            "HTTP server listening on 127.0.0.1:7432",
-            "Fusion4AI",
-        )
+        # No dialog on successful start — log to the text command palette instead.
+        print("[Fusion4AI] MCP bridge started. HTTP server listening on 127.0.0.1:7432")
 
     except Exception:
         traceback.print_exc()

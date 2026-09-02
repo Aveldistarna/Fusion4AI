@@ -301,6 +301,9 @@ def execute_design(params: dict) -> dict:
         else:
             create_params = SHAPE_PARAMS[shape](body_spec["size"])
         create_params["name"] = design_name
+        intent = body_spec.get("intent") or design.get("intent")
+        if intent:
+            create_params["intent"] = intent
         creator = SHAPE_CREATORS[shape]
 
         body_result = creator(create_params)
@@ -393,6 +396,8 @@ def execute_design(params: dict) -> dict:
                     create_params["position"] = pos
                     create_params["boolean"] = op_type
                     create_params["target"] = body_name
+                    if op_params.get("intent"):
+                        create_params["intent"] = op_params["intent"]
 
                     creator = SHAPE_CREATORS[shape]
                     step_result = creator(create_params)

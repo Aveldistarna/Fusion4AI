@@ -255,4 +255,32 @@ export function register(server: McpServer, client: FusionClient): void {
       }
     }
   );
+
+  // ── delete_body ──
+  server.tool(
+    "delete_body",
+    "Delete a body permanently (this is NOT undoable via the timeline — the source feature is removed). " +
+      "If other objects recorded a dependency on it, deletion is refused with the list of dependents " +
+      "unless force=true. Check get_intent/find_dependents before forcing.",
+    {
+      body_name: z.string().describe("Body name or entityToken"),
+      force: z.boolean().optional()
+        .describe("Delete even if other objects depend on this body (default: false)"),
+    },
+    async ({ body_name, force }) => {
+      try {
+        const result = await client.request("modifications", "delete_body", {
+          body_name, force,
+        });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
 }

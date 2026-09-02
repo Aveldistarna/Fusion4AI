@@ -1,10 +1,15 @@
 """
-Session handler — ping and status queries.
+Session handler — ping/status queries, timeline inspection, and checkpoints.
 These run on the main thread via CustomEvent dispatch.
 """
 
 import adsk.core
 import adsk.fusion
+import json
+from datetime import datetime
+
+CHECKPOINT_ATTR_GROUP = "fusion4ai"
+CHECKPOINT_ATTR_NAME = "checkpoints"
 
 
 def ping(params: dict) -> dict:
@@ -184,6 +189,11 @@ def get_timeline(params: dict) -> dict:
                 group = adsk.fusion.TimelineGroup.cast(item)
                 entry["type"] = "Group"
                 entry["group_count"] = group.count if group else 0
+                try:
+                    if group and group.name:
+                        entry["name"] = group.name
+                except Exception:
+                    pass
                 items.append(entry)
                 continue
         except Exception:
@@ -196,6 +206,17 @@ def get_timeline(params: dict) -> dict:
                 entry["type"] = type(entity).__name__
                 if hasattr(entity, "name"):
                     entry["name"] = entity.name
+                # Surface embedded design intent so the timeline reads as a build log
+                try:
+                    attrs = getattr(entity, "attributes", None)
+                    if attrs:
+                        attr = attrs.itemByName("fusion4ai", "context")
+                        if attr and attr.value:
+                            intent = json.loads(attr.value).get("intent")
+                            if intent:
+                                entry["intent"] = intent
+                except Exception:
+                    pass
             else:
                 entry["type"] = "unknown"
         except Exception:
@@ -207,6 +228,7 @@ def get_timeline(params: dict) -> dict:
         "items": items,
         "count": timeline.count,
         "marker_position": marker,
+        "checkpoints": _load_checkpoints(design),
     }
 
 
@@ -259,6 +281,137 @@ def delete_feature(params: dict) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Checkpoints — named timeline positions for part-level rollback
+# ---------------------------------------------------------------------------
+
+def _get_design_or_raise() -> adsk.fusion.Design:
+    app = adsk.core.Application.get()
+    design = adsk.fusion.Design.cast(app.activeProduct)
+    if not design:
+        raise RuntimeError("No active design.")
+    return design
+
+
+def _load_checkpoints(design: adsk.fusion.Design) -> list:
+    try:
+        attr = design.rootComponent.attributes.itemByName(
+            CHECKPOINT_ATTR_GROUP, CHECKPOINT_ATTR_NAME
+        )
+        if attr and attr.value:
+            return json.loads(attr.value)
+    except Exception:
+        pass
+    return []
+
+
+def _save_checkpoints(design: adsk.fusion.Design, checkpoints: list) -> None:
+    value = json.dumps(checkpoints, ensure_ascii=False, separators=(",", ":"))
+    attrs = design.rootComponent.attributes
+    existing = attrs.itemByName(CHECKPOINT_ATTR_GROUP, CHECKPOINT_ATTR_NAME)
+    if existing:
+        existing.value = value
+    else:
+        attrs.add(CHECKPOINT_ATTR_GROUP, CHECKPOINT_ATTR_NAME, value)
+
+
+def set_checkpoint(params: dict) -> dict:
+    """Record a named checkpoint at the current end of the timeline.
+    Call before starting a new part; rollback_to_checkpoint undoes back to it."""
+    design = _get_design_or_raise()
+    label = params.get("label")
+    if not label:
+        raise ValueError("Checkpoint requires a 'label'.")
+
+    checkpoints = _load_checkpoints(design)
+    checkpoints = [c for c in checkpoints if c.get("label") != label]
+    checkpoints.append({
+        "label": label,
+        "position": design.timeline.count,
+        "at": datetime.now().isoformat(timespec="seconds"),
+    })
+    _save_checkpoints(design, checkpoints)
+    return {"checkpoint": label, "position": design.timeline.count, "checkpoints": checkpoints}
+
+
+def list_checkpoints(params: dict) -> dict:
+    design = _get_design_or_raise()
+    return {
+        "checkpoints": _load_checkpoints(design),
+        "timeline_count": design.timeline.count,
+    }
+
+
+def rollback_to_checkpoint(params: dict) -> dict:
+    """Permanently delete all timeline items created after a checkpoint.
+    Use to undo one failed part instead of abandoning it or starting a new design."""
+    design = _get_design_or_raise()
+    timeline = design.timeline
+
+    checkpoints = _load_checkpoints(design)
+    if "label" in params:
+        matches = [c for c in checkpoints if c.get("label") == params["label"]]
+        if not matches:
+            known = [c.get("label") for c in checkpoints]
+            raise ValueError(f"Checkpoint not found: {params['label']}. Known: {known}")
+        position = matches[-1]["position"]
+    elif "position" in params:
+        position = int(params["position"])
+    else:
+        raise ValueError("Specify 'label' or 'position'.")
+
+    if position > timeline.count:
+        raise ValueError(
+            f"Checkpoint position {position} is beyond timeline count {timeline.count}."
+        )
+
+    # Ensure nothing is rolled back before deleting from the end
+    try:
+        timeline.moveToEnd()
+    except Exception:
+        pass
+
+    deleted = []
+    while timeline.count > position:
+        before = timeline.count
+        item = timeline.item(timeline.count - 1)
+        info = {"index": timeline.count - 1}
+        try:
+            info["name"] = item.name
+        except Exception:
+            pass
+
+        if item.isGroup:
+            group = adsk.fusion.TimelineGroup.cast(item)
+            info["type"] = "Group"
+            if not group.deleteMe(True):  # True = delete group AND contents
+                raise RuntimeError(f"Failed to delete timeline group: {info}. Deleted so far: {deleted}")
+        else:
+            entity = item.entity
+            info["type"] = type(entity).__name__ if entity else "unknown"
+            if entity and hasattr(entity, "deleteMe"):
+                if not entity.deleteMe():
+                    raise RuntimeError(f"Failed to delete timeline item: {info}. Deleted so far: {deleted}")
+            else:
+                raise RuntimeError(f"Cannot delete timeline item: {info}. Deleted so far: {deleted}")
+
+        if timeline.count >= before:
+            raise RuntimeError(f"Timeline did not shrink after deleting {info}; aborting rollback.")
+        deleted.append(info)
+
+    # Drop checkpoints that now point beyond the timeline
+    checkpoints = [c for c in checkpoints if c.get("position", 0) <= timeline.count]
+    _save_checkpoints(design, checkpoints)
+
+    return {
+        "rolled_back_to": position,
+        "deleted_items": deleted,
+        "deleted_count": len(deleted),
+        "timeline_count": timeline.count,
+        "checkpoints": checkpoints,
+    }
+
+
 def new_design(params: dict) -> dict:
     """Create a new empty design document."""
     app = adsk.core.Application.get()
@@ -279,4 +432,7 @@ ACTIONS = {
     "get_timeline": get_timeline,
     "delete_feature": delete_feature,
     "new_design": new_design,
+    "set_checkpoint": set_checkpoint,
+    "list_checkpoints": list_checkpoints,
+    "rollback_to_checkpoint": rollback_to_checkpoint,
 }

@@ -7,6 +7,7 @@ import adsk.fusion
 import math
 from ..utils.naming import find_body, body_info
 from ..utils.geometry import resolve_face, resolve_edges
+from . import context
 
 
 def _get_design() -> adsk.fusion.Design:
@@ -77,6 +78,8 @@ def boolean_op(params: dict) -> dict:
 
     result_body = combine.bodies.item(0)
 
+    context.try_embed(result_body, "boolean_op", params)
+
     # Get info after operation
     result = body_info(result_body)
     result["volume_before_cm3"] = vol_before
@@ -109,6 +112,8 @@ def move_body(params: dict) -> dict:
     move_feats = root.features.moveFeatures
     move_input = move_feats.createInput(bodies_col, transform)
     move_feats.add(move_input)
+
+    context.try_embed(body, "move_body", params)
 
     return body_info(body)
 
@@ -143,6 +148,8 @@ def copy_body(params: dict) -> dict:
     if params.get("new_name"):
         new_body.name = params["new_name"]
 
+    context.try_embed(new_body, "copy_body", params)
+
     return body_info(new_body)
 
 
@@ -173,6 +180,8 @@ def add_fillet(params: dict) -> dict:
         edge_col, adsk.core.ValueInput.createByReal(radius), True
     )
     fillets.add(fillet_input)
+
+    context.try_embed(body, "add_fillet", params)
 
     return body_info(body)
 
@@ -207,6 +216,8 @@ def add_chamfer(params: dict) -> dict:
         False,  # not tangent chain
     )
     chamfers.add(chamfer_input)
+
+    context.try_embed(body, "add_chamfer", params)
 
     return body_info(body)
 
@@ -275,6 +286,8 @@ def add_hole(params: dict) -> dict:
 
     ext_input.participantBodies = [body]
     extrudes.add(ext_input)
+
+    context.try_embed(body, "add_hole", params)
 
     return body_info(body)
 
@@ -348,6 +361,8 @@ def add_holes(params: dict) -> dict:
 
     ext_input.participantBodies = [body]
     extrudes.add(ext_input)
+
+    context.try_embed(body, "add_holes", params)
 
     return body_info(body)
 
@@ -434,6 +449,8 @@ def cut_by_plane(params: dict) -> dict:
     combine_input.isKeepToolBodies = False
     combine_feats.add(combine_input)
 
+    context.try_embed(body, "cut_by_plane", params)
+
     # Note: intermediate features (sketch, extrude, moves) remain in timeline
     # because CombineFeature depends on them. They cannot be safely deleted.
     # The slab body itself is consumed by the combine (isKeepToolBodies=False).
@@ -489,7 +506,40 @@ def rotate_body(params: dict) -> dict:
     move_input = move_feats.createInput(bodies_col, transform)
     move_feats.add(move_input)
 
+    context.try_embed(body, "rotate_body", params)
+
     return body_info(body)
+
+
+# ── Delete body ──
+
+def delete_body(params: dict) -> dict:
+    """Delete a body. Reports objects that recorded a dependency on it."""
+    design = _get_design()
+
+    body = find_body(design, params["body_name"])
+    if not body:
+        raise ValueError(f"Body not found: {params['body_name']}")
+
+    name = body.name
+    token = body.entityToken
+    dependents = context._find_dependents_of(design, token, name)
+
+    if dependents and not params.get("force"):
+        return {
+            "deleted": False,
+            "reason": "Other objects depend on this body. Pass force=true to delete anyway.",
+            "dependents": dependents,
+        }
+
+    if not body.deleteMe():
+        raise RuntimeError(f"deleteMe() returned False for body: {name}")
+
+    result: dict = {"deleted": True, "name": name}
+    if dependents:
+        result["warning"] = "Deleted despite dependents — run check_integrity and update their context."
+        result["dependents"] = dependents
+    return result
 
 
 ACTIONS = {
@@ -502,4 +552,5 @@ ACTIONS = {
     "add_holes": add_holes,
     "cut_by_plane": cut_by_plane,
     "rotate_body": rotate_body,
+    "delete_body": delete_body,
 }
