@@ -244,6 +244,25 @@ def add_chamfer(params: dict) -> dict:
 
 # ── Hole on face ──
 
+def _sketch_origin_offset(sketch, face):
+    """Where the face's CENTRE sits in the sketch's own 2D coordinates.
+
+    root.sketches.add(face) puts the sketch on the face's plane, but its
+    origin is wherever Fusion decides — the world origin projected onto that
+    plane, typically, not the middle of the face. Offsets are documented as
+    being from the face centre, so they have to be measured from here or a
+    hole lands at an absolute coordinate the caller never asked for.
+    """
+    bb = face.boundingBox
+    centre = adsk.core.Point3D.create(
+        (bb.minPoint.x + bb.maxPoint.x) / 2.0,
+        (bb.minPoint.y + bb.maxPoint.y) / 2.0,
+        (bb.minPoint.z + bb.maxPoint.z) / 2.0,
+    )
+    local = sketch.modelToSketchSpace(centre)
+    return local.x, local.y
+
+
 def add_hole(params: dict) -> dict:
     """Add a hole on a face of a body. Face can be 'top', 'front', etc. or a face ID."""
     design = _get_design()
@@ -271,10 +290,11 @@ def add_hole(params: dict) -> dict:
 
     # Create sketch on the face
     sketch = root.sketches.add(face)
+    cx, cy = _sketch_origin_offset(sketch, face)
 
     # Draw circle at center (in sketch local coords = 0,0 is face origin)
     sketch.sketchCurves.sketchCircles.addByCenterRadius(
-        adsk.core.Point3D.create(offset_x, offset_y, 0), radius
+        adsk.core.Point3D.create(cx + offset_x, cy + offset_y, 0), radius
     )
 
     # Select the correct profile: the one closest to the expected circle area (π*r²)
@@ -333,6 +353,7 @@ def add_holes(params: dict) -> dict:
 
     # Single sketch on the face
     sketch = root.sketches.add(face)
+    cx, cy = _sketch_origin_offset(sketch, face)
 
     # Draw all circles
     total_expected_area = 0
@@ -341,7 +362,7 @@ def add_holes(params: dict) -> dict:
         ox = _mm2cm(h.get("x", 0))
         oy = _mm2cm(h.get("y", 0))
         sketch.sketchCurves.sketchCircles.addByCenterRadius(
-            adsk.core.Point3D.create(ox, oy, 0), r
+            adsk.core.Point3D.create(cx + ox, cy + oy, 0), r
         )
         total_expected_area += math.pi * r * r
 

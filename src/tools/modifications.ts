@@ -181,11 +181,15 @@ export function register(server: McpServer, client: FusionClient): void {
       })).describe("Array of holes to create"),
       depth: z.union([z.number().positive(), z.literal("through")]).optional()
         .describe("Hole depth in mm or 'through' (default: 'through')"),
+      intent: z.string().optional()
+        .describe("WHY these holes exist. Lands on the body's provenance, not on why the body itself exists"),
+      shape: z.string().optional()
+        .describe("WHAT the body IS now these holes are in it - re-describe the machined result"),
     },
-    async ({ body_name, face, holes, depth }) => {
+    async ({ body_name, face, holes, depth, intent, shape }) => {
       try {
         const result = await client.request("modifications", "add_holes", {
-          body_name, face, holes, depth,
+          body_name, face, holes, depth, intent, shape,
         });
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],

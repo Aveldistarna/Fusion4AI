@@ -160,7 +160,7 @@ def review_modules(params: dict) -> dict:
     modules = _read_modules(design)
     target = params.get("name")
 
-    overflows, unbudgeted, missing_bodies = [], [], []
+    overflows, unbudgeted, missing_bodies, empty = [], [], [], []
     checked = 0
 
     for name, entry in modules.items():
@@ -168,6 +168,11 @@ def review_modules(params: dict) -> dict:
             continue
         area = entry.get("area")
         members = entry.get("bodies") or []
+        # A district with nobody in it checks nothing, and reporting that as a
+        # pass is exactly the lie this tool exists to avoid.
+        if not members:
+            empty.append(name)
+            continue
         if not area:
             unbudgeted.append(name)
             continue
@@ -193,9 +198,10 @@ def review_modules(params: dict) -> dict:
         "overflows": overflows,
         "overflow_count": len(overflows),
         "unbudgeted_modules": unbudgeted,
+        "empty_modules": empty,
         "missing_bodies": missing_bodies,
         "bodies_checked": checked,
-        "ok": not overflows and not missing_bodies,
+        "ok": not overflows and not missing_bodies and not empty,
     }
 
 
