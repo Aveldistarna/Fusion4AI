@@ -26,7 +26,7 @@ import adsk.core
 import adsk.fusion
 from typing import Any, Dict, List, Optional
 
-from ..utils.geometry import face_center, face_normal, FACE_DIRECTIONS
+from ..utils.geometry import face_normal, FACE_DIRECTIONS
 from ..utils.naming import find_body
 
 # Symmetry is decided by matching mirrored faces; real models carry rounding,
@@ -59,11 +59,28 @@ def _face_kind(face) -> str:
     return "freeform"
 
 
+def _face_centre_mm(face) -> Optional[List[float]]:
+    """Centre of a face's bounding box, in mm.
+
+    Deliberately not face_center(): that returns pointOnFace — an arbitrary
+    point ON the surface, in cm — which is neither a centroid nor comparable
+    with anything measured in mm. A face's box centre is stable and mirrors
+    the way the face does, which is all this needs.
+    """
+    try:
+        bb = face.boundingBox
+        return [(bb.minPoint.x + bb.maxPoint.x) * 5.0,
+                (bb.minPoint.y + bb.maxPoint.y) * 5.0,
+                (bb.minPoint.z + bb.maxPoint.z) * 5.0]
+    except Exception:
+        return None
+
+
 def _symmetry(body, centre: List[float]) -> List[str]:
     """Which principal planes through the centre the faces mirror across."""
     faces = []
     for face in body.faces:
-        c = face_center(face)
+        c = _face_centre_mm(face)
         if not c:
             return []
         faces.append((c, face.area))
