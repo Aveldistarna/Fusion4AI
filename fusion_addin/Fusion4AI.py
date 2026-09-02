@@ -193,8 +193,12 @@ def _register_all_handlers(reload: bool = False) -> dict:
     if reload:
         from .utils import geometry as geom_mod
         from .utils import naming as naming_mod
+        from .handlers import constraints as constraints_mod
         importlib.reload(geom_mod)
         importlib.reload(naming_mod)
+        # constraints is a library, not a handler — reloaded here so edits to
+        # the grammar land without restarting the add-in.
+        importlib.reload(constraints_mod)
 
     reloaded = []
     for name, module in handler_modules.items():

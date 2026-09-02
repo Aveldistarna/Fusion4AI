@@ -24,6 +24,19 @@ def _mm2cm(mm: float) -> float:
 
 # ── Boolean operations ──
 
+def _with_review(design, body, info: dict) -> dict:
+    """Attach the constraint re-check to an edit's response.
+
+    A move that quietly breaks a recorded promise is the failure mode this
+    whole layer exists to prevent, so the answer to "I moved it" carries
+    whether anything it was measured against still holds.
+    """
+    report = context.review_related(design, body)
+    if report:
+        info["constraint_review"] = report
+    return info
+
+
 def boolean_op(params: dict) -> dict:
     """Perform boolean union/subtract/intersect between two bodies."""
     design = _get_design()
@@ -115,7 +128,7 @@ def move_body(params: dict) -> dict:
 
     context.try_embed(body, "move_body", params)
 
-    return body_info(body)
+    return _with_review(design, body, body_info(body))
 
 
 def copy_body(params: dict) -> dict:
@@ -508,7 +521,7 @@ def rotate_body(params: dict) -> dict:
 
     context.try_embed(body, "rotate_body", params)
 
-    return body_info(body)
+    return _with_review(design, body, body_info(body))
 
 
 # ── Delete body ──

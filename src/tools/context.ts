@@ -10,22 +10,33 @@ export function register(server: McpServer, client: FusionClient): void {
   // ── set_intent ──
   server.tool(
     "set_intent",
-    "Embed design intent into a body/sketch/feature as persistent attributes in the Fusion document. " +
-      "Records WHY the object exists, its role, and what it depends on. " +
+    "Embed design reasoning into a body/sketch/feature as persistent attributes in the Fusion document. " +
+      "Records WHY it exists (intent), WHY it sits there (placement), WHY it is this size (dimensions), " +
+      "what it depends on, and the constraints a machine re-checks. " +
       "This context survives session restarts and travels with the geometry.",
     {
       target: z.string().describe("Body/sketch/feature name or entityToken"),
-      intent: z.string().optional().describe("Why this object exists (e.g. 'clearance hole for M3 screw fixing the lid')"),
+      intent: z.string().optional()
+        .describe("WHY this object exists (e.g. 'clearance hole for M3 screw fixing the lid')"),
+      placement: z.string().optional()
+        .describe("WHY it sits at this position/orientation. Name the relation and what breaks if it moves " +
+          "(e.g. 'centered on the servo horn axis so the arm clears the frame at full sweep'). " +
+          "Test: if this were moved, would your sentence reveal that something broke?"),
+      dimensions: z.string().optional()
+        .describe("WHY it is this size — the arithmetic behind the numbers " +
+          "(e.g. 'depth 49 = 54 frame width - 5 wall clearance')"),
       role: z.string().optional().describe("Functional role (e.g. 'mounting', 'structural', 'clearance', 'cosmetic')"),
       depends_on: z.array(z.string()).optional()
         .describe("Names/tokens of entities this object's position or size depends on"),
       constraints: z.array(z.string()).optional()
-        .describe("Constraints that must hold (e.g. 'keep 3mm gap to Cover for thermal expansion')"),
+        .describe("Rules re-measured after every move. Grammar: 'clearance >= 3mm to Cover', " +
+          "'inside Housing', 'flush Base top', 'aligned Bracket x', 'symmetric_to Leg_L about YZ', " +
+          "'concentric_with Shaft z'. Anything else is stored but reported as unchecked."),
     },
-    async ({ target, intent, role, depends_on, constraints }) => {
+    async ({ target, intent, placement, dimensions, role, depends_on, constraints }) => {
       try {
         const result = await client.request("context", "set_context", {
-          target, intent, role, depends_on, constraints,
+          target, intent, placement, dimensions, role, depends_on, constraints,
         });
         return {
           content: [{ type: "text" as const, text: formatResult(result) }],
@@ -96,6 +107,33 @@ export function register(server: McpServer, client: FusionClient): void {
     async ({ target }) => {
       try {
         const result = await client.request("context", "find_dependents", { target });
+        return {
+          content: [{ type: "text" as const, text: formatResult(result) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── review_geometry ──
+  server.tool(
+    "review_geometry",
+    "Re-measure every recorded constraint against the geometry as it stands now. " +
+      "Fusion checks that a model is valid, never that it still keeps the promises its designer made: " +
+      "nothing else notices a bracket drifting off the 3mm gap it was placed for. " +
+      "Run after manual edits, after a batch of moves, and before calling a part done. " +
+      "Reports 'unchecked' as prominently as violations — a constraint outside the grammar was stored, not verified.",
+    {
+      target: z.string().optional()
+        .describe("Review one body only. Omit to review the whole design."),
+    },
+    async ({ target }) => {
+      try {
+        const result = await client.request("context", "review_geometry", { target });
         return {
           content: [{ type: "text" as const, text: formatResult(result) }],
         };

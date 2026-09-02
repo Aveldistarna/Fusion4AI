@@ -5,8 +5,17 @@ The design document itself is the world model: intent metadata lives in Fusion
 Attributes (group "fusion4ai") attached directly to bodies/sketches/features,
 so it travels with the geometry and survives copy/save/exchange.
 
+A reason is recorded in three parts, because they go missing separately and
+answer different questions:
+  intent      — WHY this exists at all
+  placement   — WHY it sits at this position/orientation
+  dimensions  — WHY it is this size (the arithmetic behind the numbers)
+Prose in any of them decays as the design moves; constraints[] is the half a
+machine re-checks (see constraints.py for the grammar).
+
 Attributes:
-  fusion4ai/context    — JSON: {intent, role, depends_on[], constraints[], updated_at}
+  fusion4ai/context    — JSON: {intent, placement, dimensions, role,
+                                depends_on[], constraints[], updated_at}
   fusion4ai/provenance — JSON: [{op, params, at}, ...]  (operation history, capped)
 """
 
@@ -18,6 +27,7 @@ from datetime import datetime
 from typing import Any, List, Optional, Tuple
 
 from ..utils.naming import find_body
+from . import constraints as constraint_rules
 
 ATTR_GROUP = "fusion4ai"
 ATTR_CONTEXT = "context"
@@ -25,7 +35,8 @@ ATTR_PROVENANCE = "provenance"
 MAX_PROVENANCE_ENTRIES = 20
 
 # Param keys that are consumed by context embedding, not part of the geometry op
-CONTEXT_PARAM_KEYS = ("intent", "role", "depends_on", "constraints")
+CONTEXT_PARAM_KEYS = ("intent", "placement", "dimensions", "role",
+                      "depends_on", "constraints")
 
 
 def _get_design() -> adsk.fusion.Design:
@@ -144,6 +155,8 @@ def _resolve_dependency(design: adsk.fusion.Design, ref: str) -> Tuple[dict, Opt
 def merge_context(
     entity: Any,
     intent: Optional[str] = None,
+    placement: Optional[str] = None,
+    dimensions: Optional[str] = None,
     role: Optional[str] = None,
     depends_on: Optional[List[str]] = None,
     constraints: Optional[List[str]] = None,
@@ -156,6 +169,10 @@ def merge_context(
 
     if intent is not None:
         context["intent"] = intent
+    if placement is not None:
+        context["placement"] = placement
+    if dimensions is not None:
+        context["dimensions"] = dimensions
     if role is not None:
         context["role"] = role
     if constraints is not None:
@@ -197,6 +214,8 @@ def try_embed(entity: Any, op: str, params: dict) -> None:
             merge_context(
                 entity,
                 intent=params.get("intent"),
+                placement=params.get("placement"),
+                dimensions=params.get("dimensions"),
                 role=params.get("role"),
                 depends_on=params.get("depends_on"),
                 constraints=params.get("constraints"),
@@ -350,6 +369,8 @@ def set_context(params: dict) -> dict:
     context, warnings = merge_context(
         entity,
         intent=params.get("intent"),
+        placement=params.get("placement"),
+        dimensions=params.get("dimensions"),
         role=params.get("role"),
         depends_on=params.get("depends_on"),
         constraints=params.get("constraints"),
@@ -490,8 +511,115 @@ def check_integrity(params: dict) -> dict:
     return result
 
 
+def _body_constraint_rows(design) -> List[Tuple[Any, str, List[str]]]:
+    """(body, name, constraints) for every body carrying constraints."""
+    rows = []
+    for entity, context in _all_context_entries(design):
+        rules = context.get("constraints") or []
+        if not rules:
+            continue
+        # Constraints are measured off bounding boxes, so only solid bodies
+        # can carry them; a feature or sketch with rules is left to the review
+        # to report as unchecked rather than silently measured wrong.
+        if not hasattr(entity, "boundingBox"):
+            continue
+        rows.append((entity, getattr(entity, "name", "?"), rules))
+    return rows
+
+
+def review_geometry(params: dict) -> dict:
+    """Re-measure recorded constraints against the geometry as it stands.
+
+    The point of the exercise: Fusion checks that a model is valid, never that
+    it still keeps the promises its designer made about it. Nothing else will
+    notice a bracket drifting off the 3mm gap it was placed for.
+
+    `unchecked` is reported as prominently as `violations` on purpose — a
+    constraint outside the grammar was stored, not verified, and a review that
+    hid that would let "no violations" mean "nothing was looked at".
+    """
+    design = _get_design()
+    target = params.get("target")
+
+    if target:
+        entity, kind = resolve_entity(design, target)
+        if not entity:
+            raise ValueError(f"Target not found: {target}")
+        context = _read_json_attr(entity, ATTR_CONTEXT) or {}
+        rows = [(entity, getattr(entity, "name", target), context.get("constraints") or [])]
+    else:
+        rows = _body_constraint_rows(design)
+
+    violations, unchecked, errors, satisfied = [], [], [], []
+    for body, name, rules in rows:
+        for check in constraint_rules.evaluate_all(design, body, rules):
+            check["body"] = name
+            status = check.get("status")
+            if status == "violated":
+                violations.append(check)
+            elif status == "unchecked":
+                unchecked.append(check)
+            elif status == "error":
+                errors.append(check)
+            else:
+                satisfied.append(check)
+
+    checked = len(violations) + len(satisfied)
+    result = {
+        "violations": violations,
+        "violation_count": len(violations),
+        "unchecked": unchecked,
+        "unchecked_count": len(unchecked),
+        "errors": errors,
+        "bodies_reviewed": len(rows),
+        "constraints_checked": checked,
+        "constraints_satisfied": len(satisfied),
+        "ok": not violations and not errors,
+    }
+    if target:
+        result["satisfied"] = satisfied
+    return result
+
+
+def review_related(design, body) -> Optional[dict]:
+    """Constraints that this body's position could have broken — its own, and
+    every rule elsewhere that names it. Cheap enough to run after each move."""
+    try:
+        name = getattr(body, "name", None)
+        rows = []
+        for other, other_name, rules in _body_constraint_rows(design):
+            if other_name == name:
+                rows.append((other, other_name, rules))
+                continue
+            relevant = [r for r in rules if constraint_rules.references(r) == name]
+            if relevant:
+                rows.append((other, other_name, relevant))
+        if not rows:
+            return None
+
+        checks = []
+        for target_body, target_name, rules in rows:
+            for check in constraint_rules.evaluate_all(design, target_body, rules):
+                check["body"] = target_name
+                checks.append(check)
+
+        counts = constraint_rules.summarize(checks)
+        report = {"checked": len(checks), "summary": counts}
+        breaks = [c for c in checks if c.get("status") in ("violated", "error")]
+        if breaks:
+            report["violations"] = breaks
+        skipped = [c for c in checks if c.get("status") == "unchecked"]
+        if skipped:
+            report["unchecked"] = [c["constraint"] for c in skipped]
+        return report
+    except Exception:
+        traceback.print_exc()
+        return None
+
+
 ACTIONS = {
     "set_context": set_context,
+    "review_geometry": review_geometry,
     "get_context": get_context,
     "list_contexts": list_contexts,
     "find_dependents": find_dependents,
