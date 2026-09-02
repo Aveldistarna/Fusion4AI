@@ -119,6 +119,34 @@ export function register(server: McpServer, client: FusionClient): void {
     }
   );
 
+  // ── what_is_not_recorded ──
+  server.tool(
+    "what_is_not_recorded",
+    "WHICH BODIES HAVE NO RECORD — names only, nothing else. " +
+      "Every other tool carries what it is filtering out, so finding the three bodies nobody described " +
+      "means reading the whole map with all the prose in it. This one carries only the absence. " +
+      "Asks three questions per body, because a reason is recorded in three parts that go missing separately: " +
+      "why it exists, why it sits there, why it is that size. " +
+      "Use before a documenting pass, and again to see the pass finished.",
+    {
+      limit: z.number().int().positive().optional()
+        .describe("Names listed per question (default 40). Whatever is dropped is still counted."),
+    },
+    async ({ limit }) => {
+      try {
+        const result = await client.request("context", "what_is_not_recorded", { limit });
+        return {
+          content: [{ type: "text" as const, text: formatResult(result) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
   // ── review_geometry ──
   server.tool(
     "review_geometry",

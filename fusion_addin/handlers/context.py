@@ -617,8 +617,60 @@ def review_related(design, body) -> Optional[dict]:
         return None
 
 
+def _all_bodies(design) -> List[Any]:
+    bodies = []
+    for i in range(design.allComponents.count):
+        comp = design.allComponents.item(i)
+        for j in range(comp.bRepBodies.count):
+            bodies.append(comp.bRepBodies.item(j))
+    return bodies
+
+
+def what_is_not_recorded(params: dict) -> dict:
+    """WHICH BODIES HAVE NO RECORD — names only, nothing else.
+
+    Every other door carries what it is filtering OUT: finding the three
+    bodies nobody described means reading the whole map, and the map with the
+    prose in it is the part that does not fit in an answer on a real design.
+    This one carries only the absence, so it stays small at any size.
+
+    Three questions per body, because a reason is recorded in three parts and
+    they go missing separately: why it exists, why it sits there, why it is
+    that size. Use it before a documenting pass, and again to see the pass
+    finished.
+    """
+    design = _get_design()
+    limit = int(params.get("limit") or 40)
+
+    missing = {"intent": [], "placement": [], "dimensions": [], "constraints": []}
+    total = 0
+    complete = 0
+
+    for body in _all_bodies(design):
+        total += 1
+        context = _read_json_attr(body, ATTR_CONTEXT) or {}
+        name = body.name
+        gaps = 0
+        for field in ("intent", "placement", "dimensions"):
+            if not context.get(field):
+                missing[field].append(name)
+                gaps += 1
+        if not context.get("constraints"):
+            missing["constraints"].append(name)
+        if gaps == 0:
+            complete += 1
+
+    result = {"bodies_total": total, "fully_described": complete}
+    for field, names in missing.items():
+        result["no_" + field] = names[:limit]
+        result["no_%s_count" % field] = len(names)
+    result["ok"] = not any(missing[f] for f in ("intent", "placement", "dimensions"))
+    return result
+
+
 ACTIONS = {
     "set_context": set_context,
+    "what_is_not_recorded": what_is_not_recorded,
     "review_geometry": review_geometry,
     "get_context": get_context,
     "list_contexts": list_contexts,
