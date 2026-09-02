@@ -38,6 +38,15 @@ ATTR_CONTEXT = "context"
 ATTR_PROVENANCE = "provenance"
 MAX_PROVENANCE_ENTRIES = 20
 
+# Which operations CREATE a body: their intent describes the body itself.
+# Every other operation MODIFIES one, and its intent describes the operation —
+# recording a fillet's reason as the body's reason overwrites why the body
+# exists at all, leaving the fillet's reason as the only one left standing.
+CREATION_OPS = {
+    "create", "create_box", "create_cylinder", "create_sphere",
+    "create_cone", "create_polygon", "copy_body",
+}
+
 # Param keys that are consumed by context embedding, not part of the geometry op
 CONTEXT_PARAM_KEYS = ("intent", "placement", "dimensions", "shape", "role",
                       "depends_on", "constraints")
@@ -205,18 +214,63 @@ def merge_context(
     return context, warnings
 
 
+def absorbed_reason(tool_entity: Any, params: dict) -> Optional[str]:
+    """The reason to carry over when a body is consumed by another.
+
+    A cut cylinder stops existing the moment it does its job. Whatever it was
+    for has to move to the body that absorbed it, or "why is there a hole
+    here" becomes unanswerable the instant it becomes a hole.
+    """
+    inline = params.get("intent")
+    if inline:
+        return inline
+    try:
+        existing = _read_json_attr(tool_entity, ATTR_CONTEXT) or {}
+        return existing.get("intent")
+    except Exception:
+        return None
+
+
+def _trim_provenance(history: List[dict]) -> List[dict]:
+    """Cap the history, but never drop an entry that carries a reason.
+
+    A fillet's radius can be re-derived from the geometry; why someone added
+    it cannot. So the cap falls on the mechanical entries first, and a design
+    with more recorded reasons than the cap keeps all of them.
+    """
+    if len(history) <= MAX_PROVENANCE_ENTRIES:
+        return history
+    with_reason = [h for h in history if h.get("intent")]
+    plain = [h for h in history if not h.get("intent")]
+    room = MAX_PROVENANCE_ENTRIES - len(with_reason)
+    kept = with_reason + (plain[-room:] if room > 0 else [])
+    kept.sort(key=lambda h: h.get("at") or "")
+    return kept
+
+
 def record_provenance(entity: Any, op: str, params: dict) -> None:
-    """Append an operation record to the entity's provenance attribute."""
+    """Append an operation record to the entity's provenance attribute.
+
+    A modification's intent rides along here rather than on the body. It
+    explains the operation, not the thing — and this is the only place it can
+    live where the finished body can still be asked about it.
+    """
     clean_params = {
         k: v
         for k, v in params.items()
         if v is not None and not k.startswith("_") and k not in CONTEXT_PARAM_KEYS
     }
+    record = {"op": op, "params": clean_params, "at": _now()}
+    if op not in CREATION_OPS:
+        reason = params.get("intent")
+        if reason:
+            record["intent"] = reason
+    if params.get("_consumed"):
+        record["consumed"] = params["_consumed"]
+
     history = _read_json_attr(entity, ATTR_PROVENANCE) or []
-    history.append({"op": op, "params": clean_params, "at": _now()})
-    if len(history) > MAX_PROVENANCE_ENTRIES:
-        history = history[-MAX_PROVENANCE_ENTRIES:]
-    _write_json_attr(entity, ATTR_PROVENANCE, history)
+    history.append(record)
+    _write_json_attr(entity, ATTR_PROVENANCE, _trim_provenance(history))
 
 
 def try_embed(entity: Any, op: str, params: dict) -> None:
@@ -224,17 +278,15 @@ def try_embed(entity: Any, op: str, params: dict) -> None:
     Never raises — context embedding must not break a modeling operation."""
     try:
         record_provenance(entity, op, params)
-        if any(params.get(k) is not None for k in CONTEXT_PARAM_KEYS):
-            merge_context(
-                entity,
-                intent=params.get("intent"),
-                placement=params.get("placement"),
-                dimensions=params.get("dimensions"),
-                shape=params.get("shape"),
-                role=params.get("role"),
-                depends_on=params.get("depends_on"),
-                constraints=params.get("constraints"),
-            )
+        fields = {k: params.get(k) for k in CONTEXT_PARAM_KEYS}
+        if op not in CREATION_OPS:
+            # The operation's reason already went to provenance. Everything
+            # else still describes the body — `shape` above all: re-describing
+            # what a part BECAME after machining ("outer 20, 2mm wall tube")
+            # is more use to the next reader than the cuts that got it there.
+            fields["intent"] = None
+        if any(v is not None for v in fields.values()):
+            merge_context(entity, **fields)
     except Exception:
         traceback.print_exc()
 

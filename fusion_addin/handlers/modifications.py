@@ -62,6 +62,9 @@ def boolean_op(params: dict) -> dict:
 
     # Capture volume before operation
     vol_before = target.volume
+    # Read the tool's name and reason before the combine can consume it.
+    tool_name = tool.name
+    tool_reason = context.absorbed_reason(tool, params)
 
     combine_feats = root.features.combineFeatures
     tool_bodies = adsk.core.ObjectCollection.create()
@@ -91,7 +94,11 @@ def boolean_op(params: dict) -> dict:
 
     result_body = combine.bodies.item(0)
 
-    context.try_embed(result_body, "boolean_op", params)
+    absorbed = dict(params)
+    if not params.get("keep_tool"):
+        absorbed["_consumed"] = tool_name
+        absorbed["intent"] = tool_reason
+    context.try_embed(result_body, "boolean_op", absorbed)
 
     # Get info after operation
     result = body_info(result_body)

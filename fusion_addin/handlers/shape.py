@@ -89,6 +89,24 @@ def _symmetry(body, centre: List[float]) -> List[str]:
     return planes
 
 
+def _proportions(size: List[float]) -> str:
+    """How the extents relate — the one word a reader wants before the numbers.
+
+    A statement about the bounding box only. It says a shape is plate-like, not
+    that it IS a plate: an L-bracket and a slab share these proportions, and
+    only the declared shape can tell them apart.
+    """
+    ordered = sorted(v for v in size if v > 0)
+    if len(ordered) < 3 or ordered[0] <= 0:
+        return "degenerate"
+    smallest, mid, largest = ordered
+    if smallest * 3 <= mid:
+        return "plate-like" if mid * 3 > largest else "bar-like"
+    if largest >= smallest * 3:
+        return "bar-like"
+    return "blocky"
+
+
 def describe_body(body) -> dict:
     """Everything about one body that can be stated without seeing it."""
     bbox = _bbox_mm(body)
@@ -120,6 +138,7 @@ def describe_body(body) -> dict:
             largest = (kind, face.area)
 
     centre = [(bbox["min"][i] + bbox["max"][i]) / 2.0 for i in range(3)]
+    proportions = _proportions(size)
     info = {
         "body": body.name,
         "bbox_mm": bbox,
@@ -132,6 +151,7 @@ def describe_body(body) -> dict:
         "edge_count": body.edges.count,
         "planar_faces_by_direction": dict(sorted(labelled.items())),
         "inner_loops": inner_loops,
+        "proportions": proportions,
         "symmetry_planes": _symmetry(body, centre),
     }
     if largest:

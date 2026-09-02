@@ -47,6 +47,10 @@ def _apply_boolean(params: dict, design: adsk.fusion.Design, new_body: adsk.fusi
         raise ValueError(f"Unknown boolean operation: {boolean_op}. Use union/subtract/intersect.")
 
     vol_before = target.volume
+    # Read the tool's name and reason BEFORE the combine consumes it.
+    tool_name = new_body.name
+    tool_reason = context.absorbed_reason(new_body, params)
+
     combine_feats = root.features.combineFeatures
     tool_bodies = adsk.core.ObjectCollection.create()
     tool_bodies.add(new_body)
@@ -59,8 +63,12 @@ def _apply_boolean(params: dict, design: adsk.fusion.Design, new_body: adsk.fusi
     # belongs to the boolean feature itself — otherwise successive cuts would
     # overwrite the target body's own intent.
     op_name = params.get("_op", "create")
-    provenance_only = {k: v for k, v in params.items() if k not in context.CONTEXT_PARAM_KEYS}
-    context.try_embed(target, op_name, provenance_only)
+    absorbed = dict(params)
+    absorbed["_consumed"] = tool_name
+    absorbed["intent"] = tool_reason
+    # Labelled as a modification of the target, so the reason lands in the
+    # target's provenance instead of overwriting why the target exists.
+    context.try_embed(target, "%s:%s" % (boolean_op.lower(), op_name), absorbed)
     if combine and any(params.get(k) is not None for k in context.CONTEXT_PARAM_KEYS):
         context.try_embed(combine, op_name, params)
 
