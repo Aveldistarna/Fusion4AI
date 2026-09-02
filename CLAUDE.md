@@ -2,6 +2,16 @@
 
 AI-driven CAD modeling MCP server for Autodesk Fusion.
 
+## 作業手順の出典
+
+造形の手順は MCPサーバーの `usage()` ツールが持つ（出典は [src/tools/usage.ts](src/tools/usage.ts)
+の `USAGE_TEXT`）。`.claude/skills/fusion4ai/SKILL.md` はその写しで、`npm run build` が
+自動同期する — **写しを直接編集しないこと**。
+
+このCLAUDE.mdはリポジトリ内で作業するときしか読まれない。実際に造形するのは
+別プロジェクトからなので、運用ルールは `usage()` とSkillに置く。下記は開発時の
+参照用の要約であり、造形の手順そのものは `usage()` を呼んで読むこと。
+
 ## 造形作業のルール
 
 ### 人間との共同作業を前提にする

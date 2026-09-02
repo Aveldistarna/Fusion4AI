@@ -10,9 +10,10 @@
     "fusion4ai": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/sync-skill.mjs",
     "start": "node dist/index.js",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "sync:skill": "node scripts/sync-skill.mjs"
   },
   "keywords": [],
   "author": "",

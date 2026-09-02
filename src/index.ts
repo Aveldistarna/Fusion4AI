@@ -13,6 +13,7 @@ import { register as registerModifications } from "./tools/modifications.js";
 import { register as registerDesignScript } from "./tools/design_script.js";
 import { register as registerContext } from "./tools/context.js";
 import { register as registerModules } from "./tools/modules.js";
+import { register as registerUsage } from "./tools/usage.js";
 
 // ---------------------------------------------------------------------------
 // MCP Server
@@ -33,6 +34,7 @@ registerModifications(server, fusionClient);
 registerDesignScript(server, fusionClient);
 registerContext(server, fusionClient);
 registerModules(server, fusionClient);
+registerUsage(server);
 
 // ---------------------------------------------------------------------------
 // Start server
