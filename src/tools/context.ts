@@ -111,13 +111,18 @@ export function register(server: McpServer, client: FusionClient): void {
   // ── check_context_integrity ──
   server.tool(
     "check_context_integrity",
-    "Reconciliation check: find dangling depends_on references (target was deleted/renamed) " +
+    "Reconciliation check: find dangling depends_on references (target was deleted/renamed), " +
+      "orphaned intent (the body/face it described was consumed by a fillet or deleted), " +
       "and bodies without recorded intent. Run this after manual edits in the Fusion UI " +
       "or when resuming work, then repair with set_intent.",
-    {},
-    async () => {
+    {
+      purge_orphans: z.boolean().optional()
+        .describe("Delete intent whose geometry no longer exists. Destructive and " +
+          "unrecoverable — read the orphans first and re-attach anything still meaningful."),
+    },
+    async ({ purge_orphans }) => {
       try {
-        const result = await client.request("context", "check_integrity", {});
+        const result = await client.request("context", "check_integrity", { purge_orphans });
         return {
           content: [{ type: "text" as const, text: formatResult(result) }],
         };

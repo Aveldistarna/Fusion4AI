@@ -35,7 +35,8 @@ AI-driven CAD modeling MCP server for Autodesk Fusion.
 - 既存デザインで作業を再開したら、まず `get_design_context` で過去の意図を回収する
 - 自分が作っていないオブジェクトを変更・削除する前に、必ず `get_intent` で意図と依存を確認する
 - 削除や大きな変更の前は `find_dependents` で影響範囲を確認する（`safe_to_modify` を見る）
-- ユーザーがGUIで編集した形跡があれば `check_context_integrity` で参照切れを検出し、`set_intent` で修復する
+- ユーザーがGUIで編集した形跡があれば `check_context_integrity` で参照切れと孤児意図を検出し、`set_intent` で修復する
+- フィレットやブーリアンは面・エッジを消費するが、そこに付けた意図は消えず「孤児」として残る（Fusionの仕様上、属性は自動削除されない）。`orphaned_intent` に出たら、生きている実体へ `set_intent` で貼り直すか、不要なら `purge_orphans=True` で消す
 - 全造形操作の履歴（provenance）は自動記録される。手動で書くのは「意図」だけでよい
 
 ### チェックポイントとパーツ単位のやり直し

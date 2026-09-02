@@ -209,41 +209,125 @@ def try_embed(entity: Any, op: str, params: dict) -> None:
 # Scanning helpers
 # ---------------------------------------------------------------------------
 
-def _all_context_entries(design: adsk.fusion.Design) -> List[Tuple[Any, dict]]:
-    """All (entity, context) pairs in the design."""
-    entries = []
+def _scan_contexts(
+    design: adsk.fusion.Design,
+) -> Tuple[List[Tuple[Any, dict]], List[Tuple[Any, dict]]]:
+    """Scan every fusion4ai/context attribute. Returns (live, orphaned).
+
+    An attribute on a B-Rep entity is never deleted automatically. If a later
+    feature consumes the edge or face it was attached to (a fillet swallowing
+    an edge, say), the attribute survives with a null parent. Those orphans are
+    intent that no longer describes any geometry: they must be reported, not
+    skipped, or the reasoning vanishes from the world model without a trace.
+
+    Orphans are returned as (attribute, record) so the caller can purge them.
+    """
+    live: List[Tuple[Any, dict]] = []
+    orphaned: List[Tuple[Any, dict]] = []
     try:
         attrs = design.findAttributes(ATTR_GROUP, ATTR_CONTEXT)
     except Exception:
-        attrs = []
+        return live, orphaned
+
     for attr in attrs:
         try:
-            entity = attr.parent
-            if not entity:
-                continue
             context = json.loads(attr.value) if attr.value else None
-            if context is not None:
-                entries.append((entity, context))
         except Exception:
             continue
-    return entries
+        if context is None:
+            continue
+        try:
+            entity = attr.parent
+        except Exception:
+            entity = None
+        if entity:
+            live.append((entity, context))
+        else:
+            orphaned.append((attr, {
+                "intent": context.get("intent"),
+                "role": context.get("role"),
+                "recorded_at": context.get("updated_at"),
+                "context": context,
+                "reason": "parent geometry no longer exists — consumed by a later "
+                          "feature (fillet/chamfer/boolean) or deleted",
+            }))
+    return live, orphaned
 
 
-def _matches_target(dep: dict, target_token: Optional[str], target_name: Optional[str]) -> bool:
-    if target_token and dep.get("token") == target_token:
+def _all_context_entries(design: adsk.fusion.Design) -> List[Tuple[Any, dict]]:
+    """All (entity, context) pairs whose entity still exists."""
+    live, _ = _scan_contexts(design)
+    return live
+
+
+def _resolve_token(design: adsk.fusion.Design, token: str, cache: dict) -> Optional[Any]:
+    """findEntityByToken, memoized for the duration of one lookup."""
+    if token in cache:
+        return cache[token]
+    resolved = None
+    try:
+        found = design.findEntityByToken(token)
+        resolved = found[0] if found else None
+    except Exception:
+        resolved = None
+    cache[token] = resolved
+    return resolved
+
+
+def _same_entity(a: Any, b: Any) -> bool:
+    if a is None or b is None:
+        return False
+    try:
+        if a == b:
+            return True
+    except Exception:
+        pass
+    try:
+        ta = getattr(a, "entityToken", None)
+        return bool(ta) and ta == getattr(b, "entityToken", None)
+    except Exception:
+        return False
+
+
+def _matches_target(
+    design: adsk.fusion.Design,
+    dep: dict,
+    target: Optional[Any],
+    target_token: Optional[str],
+    target_name: Optional[str],
+    cache: dict,
+) -> bool:
+    """Does this depends_on record point at the target entity?
+
+    Token strings are not stable over time: the same entity can hand out
+    different strings, so a string match proves identity but a mismatch proves
+    nothing. Only findEntityByToken can settle it, so an unmatched token is
+    resolved back to an entity before concluding it is a different one.
+    """
+    dep_token = dep.get("token")
+    if target_token and dep_token == target_token:
         return True
     if target_name and (dep.get("ref") == target_name or dep.get("name") == target_name):
         return True
+    if dep_token and target is not None:
+        return _same_entity(_resolve_token(design, dep_token, cache), target)
     return False
 
 
 def _find_dependents_of(
-    design: adsk.fusion.Design, target_token: Optional[str], target_name: Optional[str]
+    design: adsk.fusion.Design,
+    target: Optional[Any],
+    target_token: Optional[str],
+    target_name: Optional[str],
 ) -> List[dict]:
     dependents = []
+    cache: dict = {}
     for entity, context in _all_context_entries(design):
         deps = context.get("depends_on") or []
-        matched = [d for d in deps if _matches_target(d, target_token, target_name)]
+        matched = [
+            d for d in deps
+            if _matches_target(design, d, target, target_token, target_name, cache)
+        ]
         if matched:
             info = entity_brief(entity)
             info["intent"] = context.get("intent")
@@ -289,7 +373,7 @@ def get_context(params: dict) -> dict:
         "target": entity_brief(entity, kind),
         "context": _read_json_attr(entity, ATTR_CONTEXT),
         "provenance": _read_json_attr(entity, ATTR_PROVENANCE),
-        "dependents": _find_dependents_of(design, token, name),
+        "dependents": _find_dependents_of(design, entity, token, name),
     }
 
 
@@ -337,7 +421,7 @@ def find_dependents(params: dict) -> dict:
 
     token = getattr(entity, "entityToken", None)
     name = getattr(entity, "name", None)
-    dependents = _find_dependents_of(design, token, name)
+    dependents = _find_dependents_of(design, entity, token, name)
     own_context = _read_json_attr(entity, ATTR_CONTEXT) or {}
 
     return {
@@ -350,11 +434,29 @@ def find_dependents(params: dict) -> dict:
 
 
 def check_integrity(params: dict) -> dict:
-    """Reconciliation: find dangling depends_on references and unannotated bodies."""
+    """Reconciliation: find dangling references, orphaned intent, unannotated bodies.
+
+    Pass purge_orphans=True to delete intent whose geometry is gone. That is
+    destructive and unrecoverable, so it is off by default: read the orphans
+    first and re-attach anything still meaningful with set_intent.
+    """
     design = _get_design()
+    live, orphaned = _scan_contexts(design)
+
+    purge = bool(params.get("purge_orphans"))
+    orphan_records = []
+    for attr, record in orphaned:
+        if purge:
+            try:
+                attr.deleteMe()
+                record["purged"] = True
+            except Exception as e:
+                record["purged"] = False
+                record["purge_error"] = str(e)
+        orphan_records.append(record)
 
     dangling = []
-    for entity, context in _all_context_entries(design):
+    for entity, context in live:
         for dep in context.get("depends_on") or []:
             resolved = None
             token = dep.get("token")
@@ -373,13 +475,19 @@ def check_integrity(params: dict) -> dict:
                 dangling.append(record)
 
     scan = list_contexts({})
-    return {
+    remaining_orphans = [r for r in orphan_records if not r.get("purged")]
+    result = {
         "dangling_references": dangling,
         "dangling_count": len(dangling),
+        "orphaned_intent": orphan_records,
+        "orphaned_count": len(orphan_records),
         "unannotated_bodies": scan["unannotated_bodies"],
         "annotated_count": scan["annotated_count"],
-        "ok": len(dangling) == 0,
+        "ok": not dangling and not remaining_orphans,
     }
+    if purge:
+        result["purged_count"] = sum(1 for r in orphan_records if r.get("purged"))
+    return result
 
 
 ACTIONS = {
