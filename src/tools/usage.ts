@@ -163,6 +163,13 @@ what_is_not_recorded は不在だけを名前で返す。他のツールは記�
 
 -- 何かがおかしいとき --
   volume_delta = 0        操作が効いていない。原因を調べてからやり直す
+  union で delta = 0      Fusionは接触していないボディを結合しない（エラーも
+                          出ない）。重ねるか、間を繋ぐボディを足すか、離した
+                          まま一つの部品として扱うなら set_module で束ねる
+  execute_design が
+  検証エラーを返す        知らないキーは黙って捨てず、名前を挙げて止まる。
+                          位置は body なら position、features なら at（座標の
+                          リストか "top" などの参照）。offset/center は無い
   形が期待と違う          新規デザインでやり直す前に必ずユーザーに見せる。
                           ユーザーが「やり直して」と言うまでは undo と修正で試す
   パーツが失敗            rollback_to_checkpoint でそのパーツだけ巻き戻す。

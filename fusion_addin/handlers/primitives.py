@@ -58,6 +58,10 @@ def _apply_boolean(params: dict, design: adsk.fusion.Design, new_body: adsk.fusi
     combine_input.operation = op
     combine_input.isKeepToolBodies = False
     combine = combine_feats.add(combine_input)
+    if not combine:
+        raise RuntimeError(
+            "combineFeatures.add returned None (%s of '%s' into '%s')"
+            % (boolean_op, tool_name, target_name))
 
     # Provenance goes on the target body (its operation history), but intent
     # belongs to the boolean feature itself — otherwise successive cuts would
@@ -75,6 +79,19 @@ def _apply_boolean(params: dict, design: adsk.fusion.Design, new_body: adsk.fusi
     result = body_info(target)
     result["volume_before_cm3"] = vol_before
     result["volume_delta_cm3"] = round(result["volume_cm3"] - vol_before, 6)
+
+    # Fusion reports success either way, so the geometry is the only evidence.
+    # A Join between bodies that never touch leaves both of them standing and
+    # moves no volume: silence here reads as "merged" and is the opposite.
+    if result["volume_delta_cm3"] == 0:
+        # Do not claim the tool was consumed: a Join that merged nothing leaves
+        # the body in the design, and Fusion renames it after the target, so
+        # the old name no longer finds it.
+        result["warning"] = (
+            "%s moved no volume. Fusion neither merges nor cuts bodies that do "
+            "not touch, and reports success either way — check that the tool "
+            "overlapped the target. If it did not, the tool body is still in "
+            "the design under a name derived from '%s'." % (boolean_op, target_name))
     result["boolean"] = boolean_op
     return result
 
