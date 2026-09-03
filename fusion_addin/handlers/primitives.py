@@ -177,6 +177,19 @@ def create_cylinder(params: dict) -> dict:
     return _apply_boolean(params, design, body)
 
 
+def _to_sketch_xy(sketch, x_cm: float, z_cm: float):
+    """Put a world (x, z) point into a sketch's own 2D coordinates.
+
+    A sketch on the XZ plane carries world Z on its local Y axis, but Fusion
+    orients that axis the opposite way, so writing world coordinates straight
+    into the sketch mirrors everything through the origin. On a shape with no
+    handedness — a sphere — nothing looks wrong until it is measured, or
+    printed. Ask the sketch where the point goes instead of assuming.
+    """
+    local = sketch.modelToSketchSpace(adsk.core.Point3D.create(x_cm, 0, z_cm))
+    return local.x, local.y
+
+
 def create_sphere(params: dict) -> dict:
     """Create a sphere centered at position using revolve."""
     params.setdefault("_op", "create_sphere")
@@ -193,14 +206,15 @@ def create_sphere(params: dict) -> dict:
 
     # Draw semicircle + axis line
     # In XZ sketch, local coords are (x_world, z_world)
-    center = adsk.core.Point3D.create(cx, cz, 0)
-    top = adsk.core.Point3D.create(cx, cz + radius, 0)
-    bottom = adsk.core.Point3D.create(cx, cz - radius, 0)
+    sx, sy = _to_sketch_xy(sketch, cx, cz)
+    center = adsk.core.Point3D.create(sx, sy, 0)
+    top = adsk.core.Point3D.create(sx, sy + radius, 0)
+    bottom = adsk.core.Point3D.create(sx, sy - radius, 0)
 
     # Half-circle arc
     sketch.sketchCurves.sketchArcs.addByThreePoints(
         top,
-        adsk.core.Point3D.create(cx + radius, cz, 0),
+        adsk.core.Point3D.create(sx + radius, sy, 0),
         bottom,
     )
 
@@ -256,10 +270,12 @@ def create_cone(params: dict) -> dict:
     lines = sketch.sketchCurves.sketchLines
 
     # Points: bottom-right, top-right, top-left (axis), bottom-left (axis)
-    p_br = adsk.core.Point3D.create(cx + base_r, cz, 0)
-    p_tr = adsk.core.Point3D.create(cx + top_r, cz + h, 0)
-    p_tl = adsk.core.Point3D.create(cx, cz + h, 0)
-    p_bl = adsk.core.Point3D.create(cx, cz, 0)
+    bx, by = _to_sketch_xy(sketch, cx, cz)
+    _, ty = _to_sketch_xy(sketch, cx, cz + h)
+    p_br = adsk.core.Point3D.create(bx + base_r, by, 0)
+    p_tr = adsk.core.Point3D.create(bx + top_r, ty, 0)
+    p_tl = adsk.core.Point3D.create(bx, ty, 0)
+    p_bl = adsk.core.Point3D.create(bx, by, 0)
 
     lines.addByTwoPoints(p_bl, p_br)  # bottom edge
     lines.addByTwoPoints(p_br, p_tr)  # right edge (slant)

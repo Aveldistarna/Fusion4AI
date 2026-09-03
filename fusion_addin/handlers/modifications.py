@@ -564,7 +564,7 @@ def delete_body(params: dict) -> dict:
 
     name = body.name
     token = body.entityToken
-    dependents = context._find_dependents_of(design, token, name)
+    dependents = context._find_dependents_of(design, body, token, name)
 
     if dependents and not params.get("force"):
         return {

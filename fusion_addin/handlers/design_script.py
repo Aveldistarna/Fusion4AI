@@ -125,6 +125,29 @@ def expand_pattern(pattern_str: str) -> List[Tuple[float, float]]:
 
 SHAPE_SIZE_COUNTS = {"box": 3, "cylinder": 2, "sphere": 1, "cone": 3, "polygon": None}
 KNOWN_OPS = {"union", "subtract", "fillet", "chamfer", "cut_by_plane", "select"}
+
+# A key the engine does not read is worse than a rejected one: the script looks
+# like it asked for something and the result quietly ignores it. "offset" and
+# "center" are the near-misses for "at" that cost a real session.
+BODY_KEYS = {"shape", "size", "position", "points", "height", "intent", "name"}
+PLACEMENT_KEYS = {"shape", "size", "at", "pattern", "points", "height",
+                  "intent", "checkpoint"}
+_KEY_HINTS = {"offset": "at", "center": "at", "location": "at",
+              "pos": "position", "translate": "at", "coordinates": "at"}
+
+
+def _unknown_keys(spec: dict, known: set, where: str) -> List[str]:
+    problems = []
+    for key in spec:
+        if key in known:
+            continue
+        hint = _KEY_HINTS.get(key)
+        if hint and hint in known:
+            problems.append(f"{where}: unknown key '{key}' — did you mean '{hint}'?")
+        else:
+            problems.append(
+                f"{where}: unknown key '{key}'. Known keys: {sorted(known)}")
+    return problems
 KNOWN_EDGE_REFS = {"all", "vertical", "horizontal", "perp_to_selection",
                    "top", "bottom", "front", "back", "left", "right"}
 
@@ -142,6 +165,8 @@ def validate_design(design: dict) -> List[str]:
     if not isinstance(body, dict):
         errors.append("'body' must be a mapping with 'shape' and 'size'.")
         return errors
+
+    errors.extend(_unknown_keys(body, BODY_KEYS, "body"))
 
     shape = body.get("shape")
     if not shape:
@@ -194,6 +219,7 @@ def validate_design(design: dict) -> List[str]:
 
         # Validate union/subtract
         if op in ("union", "subtract"):
+            errors.extend(_unknown_keys(params, PLACEMENT_KEYS, f"{prefix} ({op})"))
             if "shape" not in params:
                 errors.append(f"{prefix} ({op}): missing 'shape'.")
             elif params["shape"] not in SHAPE_SIZE_COUNTS:
@@ -272,7 +298,10 @@ def execute_design(params: dict) -> dict:
         else:
             design = json.loads(script_str)
     except Exception as e:
-        raise ValueError(f"Failed to parse design script: {e}")
+        hint = "" if HAS_YAML else (
+            " — no YAML library is available in Fusion's Python, so the script "
+            "must be JSON despite the parameter name")
+        raise ValueError(f"Failed to parse design script: {e}{hint}")
 
     # Validate before execution
     validation_errors = validate_design(design)
@@ -301,6 +330,12 @@ def execute_design(params: dict) -> dict:
         else:
             create_params = SHAPE_PARAMS[shape](body_spec["size"])
         create_params["name"] = design_name
+        # The base body has no bounding box to be relative to yet, so its
+        # position is absolute mm. Without this it was silently pinned to the
+        # origin no matter what the script asked for.
+        base_pos = body_spec.get("position")
+        if base_pos is not None:
+            create_params["position"] = [float(v) for v in base_pos]
         intent = body_spec.get("intent") or design.get("intent")
         if intent:
             create_params["intent"] = intent
