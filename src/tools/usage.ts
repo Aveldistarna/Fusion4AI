@@ -69,6 +69,11 @@ screenshot() は人間に見せるためのものであって、あなたの知�
    置くときに理由を渡す（intent / placement / dimensions / shape）。
    位置や寸法が他に依存するなら depends_on も。
 
+   position の基準は形ごとに違う。box・cylinder・cone は
+   「XYは中心、Zは底面」（同じ z を渡せば同じ平面に載る）。sphere だけ
+   完全な中心。polygon は points に足されるオフセット。作った後は
+   bounding_box で意図した通りか必ず確かめる。
+
 3. 各操作の後、volume_delta と face_count を見る。delta=0 なら効いて
    いない。原因を調べてからやり直す。
 

@@ -37,7 +37,9 @@ export function register(server: McpServer, client: FusionClient): void {
       position: z
         .tuple([z.number(), z.number(), z.number()])
         .optional()
-        .describe("Center position [x, y, z] in mm (default: origin)"),
+        .describe("Position [x, y, z] in mm (default: origin). NOTE the asymmetry: " +
+          "x and y are the CENTRE of the box, z is its BOTTOM — matching create_cylinder, " +
+          "so a box and a cylinder given the same z sit on the same plane."),
       boolean: booleanParam,
       target: targetParam,
       intent: intentParam,

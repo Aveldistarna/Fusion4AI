@@ -151,20 +151,46 @@ def copy_body(params: dict) -> dict:
     dy = _mm2cm(params.get("y", 0))
     dz = _mm2cm(params.get("z", 0))
 
-    # Copy via move with copy option
-    bodies_col = adsk.core.ObjectCollection.create()
-    bodies_col.add(body)
+    # MoveFeatureInput has no isCopy property: setting it is silently ignored,
+    # which moved the SOURCE body and left no copy. Paste an explicit copy
+    # instead, identify it by what appeared, then move only that copy.
+    before = set()
+    for i in range(root.bRepBodies.count):
+        before.add(root.bRepBodies.item(i).entityToken)
 
-    transform = adsk.core.Matrix3D.create()
-    transform.translation = adsk.core.Vector3D.create(dx, dy, dz)
+    copied = root.features.copyPasteBodies.add(body)
 
-    move_feats = root.features.moveFeatures
-    move_input = move_feats.createInput(bodies_col, transform)
-    move_input.isCopy = True
-    move_feats.add(move_input)
+    # Ask the feature what it produced. Comparing token strings works here only
+    # because the two reads are moments apart; the feature knows outright.
+    new_body = None
+    try:
+        if copied and copied.bodies.count:
+            new_body = copied.bodies.item(0)
+    except Exception:
+        new_body = None
 
-    # The new body is the last one added
-    new_body = root.bRepBodies.item(root.bRepBodies.count - 1)
+    if new_body is None:
+        for i in range(root.bRepBodies.count):
+            b = root.bRepBodies.item(i)
+            if b.entityToken not in before:
+                new_body = b
+                break
+    if new_body is None:
+        raise RuntimeError(
+            "copy_body: copyPasteBodies produced no new body "
+            "(is the root component the active one?)"
+        )
+
+    if dx or dy or dz:
+        bodies_col = adsk.core.ObjectCollection.create()
+        bodies_col.add(new_body)
+
+        transform = adsk.core.Matrix3D.create()
+        transform.translation = adsk.core.Vector3D.create(dx, dy, dz)
+
+        move_feats = root.features.moveFeatures
+        move_feats.add(move_feats.createInput(bodies_col, transform))
+
     if params.get("new_name"):
         new_body.name = params["new_name"]
 
@@ -573,8 +599,19 @@ def delete_body(params: dict) -> dict:
             "dependents": dependents,
         }
 
-    if not body.deleteMe():
-        raise RuntimeError(f"deleteMe() returned False for body: {name}")
+    # In a parametric design deleteMe() returns True but leaves the body in
+    # place; the deletion has to go through the timeline as a Remove feature.
+    parent = body.parentComponent or design.rootComponent
+    try:
+        parent.features.removeFeatures.add(body)
+    except Exception:
+        if not body.deleteMe():
+            raise RuntimeError(f"deleteMe() returned False for body: {name}")
+
+    if find_body(design, name) is not None:
+        raise RuntimeError(
+            f"delete_body: body still present after delete: {name}"
+        )
 
     result: dict = {"deleted": True, "name": name}
     if dependents:
