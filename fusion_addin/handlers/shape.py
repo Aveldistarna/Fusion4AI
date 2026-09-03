@@ -423,6 +423,14 @@ def verify(params: dict) -> dict:
     }
     context = ctx._read_json_attr(body, ctx.ATTR_CONTEXT) or {}
     context["verification"] = record
+
+    # Confirming a match confirms the shape sentence too, so re-stamp its
+    # fingerprint. Otherwise a description that was right all along — written
+    # before the machining that made it true — stays reported as stale, and
+    # the reader is told to fix something already correct.
+    if record["matches"] and context.get("shape"):
+        context["shape_fingerprint"] = dict(record["fingerprint"])
+
     ctx._write_json_attr(body, ctx.ATTR_CONTEXT, context)
     return {"target": ctx.entity_brief(body, "body"), "verification": record}
 
