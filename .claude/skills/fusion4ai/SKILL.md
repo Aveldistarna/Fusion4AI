@@ -147,6 +147,10 @@ shape を書くと実測の指紋（体積・寸法・面数・エッジ数・�
 別の軸なので両方要る。set_checkpoint("before Leg_R") を打っても、
 Leg_R を構成するボディがどれかは記録されない。
 
+離れたボディは union できない（Fusionは接触しないものを結合しない）。
+一つの部品が複数の離れたボディでできているのは異常ではなく普通で、
+それを一つとして扱うのがモジュールの役目でもある。
+
   set_module(name, bodies=, intent=, shape=, area=)  束ねる／区画を引く
   list_modules()        一覧と unassigned_bodies（どこにも属さないボディ）
   review_modules()      区画からはみ出した部品。区画のない部品は「合格」
