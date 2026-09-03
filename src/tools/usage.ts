@@ -82,8 +82,14 @@ screenshot() は人間に見せるためのものであって、あなたの知�
 5. 節目で screenshot を撮ってユーザーに見せ、判断を仰ぐ。AIだけで
    完結しようとしない。迷ったら get_selection で「どこを指しているか」を聞く。
 
-6. 部品を完成とする前に review_geometry / review_modules /
-   what_is_not_recorded を回す。
+6. 部品ごとに検証する。review_intent(target) が「記録した理由」と
+   「実測した形」を並べて問いを返すので、それに答える。答えを
+   verify_intent(target, matches=, note=) で残す。note には何と何を
+   照合したかを具体的に書く（下記「検証とは何か」）。
+
+7. 部品を完成とする前に review_geometry / review_modules /
+   what_is_not_recorded を回す。what_is_not_recorded の
+   no_verification に名前が残っているうちは終わっていない。
 
 -- 理由は三つに分ける --
 別々に欠落し、別々の問いに答えるため。
@@ -150,6 +156,31 @@ shape を書くと実測の指紋（体積・寸法・面数・エッジ数・�
 モジュールにも shape を書ける。各ボディは自分の形を知っているが、
 合わさって何になるかは誰も知らない。
 
+-- 検証とは何か --
+検証とは、記録された意図と実測された形状を突き合わせ、食い違いを
+名指しすることである。突き合わせていないものは「合格」ではなく「未検証」。
+
+これは機械にはできない。「M3を通すクリアランス穴」が満たされているかを
+判定できる検査器は書けるように見えて書けず、書けば「検査した」という嘘を
+つく。機械にできるのは、判定に必要な二つを同じ場所に並べることだけだ。
+
+  review_intent(target)   記録（intent/placement/dimensions/shape/constraints）と
+                          実測（describe_shape）を並べ、問いを返す
+  verify_intent(target,   読んだ結果を残す。note は必須 —「verified」だけでは
+    matches=, note=)      主張であって検査ではなく、一度も見ていない状態と
+                          区別がつかない
+
+なぜ要るか: 制約もモジュールも記録欄も全部「形式」の検査だ。
+constraints に "flush Base back" と書いてあれば、ネジ穴が使い物に
+ならない位置にあっても review_geometry は ok を返す。intent が
+「フランジをネジ留めする板」と言っていることと、実際に穴がその位置に
+開いていることを結びつけているものは、今のところ何もない。それを
+結びつけるのが検証で、やるのはあなただ。
+
+verify_intent は実測の指紋を一緒に刻む。あとで加工すれば検証は
+stale に戻る（check_context_integrity が stale_verifications で報告）。
+古い合格が残り続けるのは、検証が無いことより悪いため。
+
 -- 部位（モジュール）--
 タイムラインは「いつ作ったか」、モジュールは「どれが一つの部品か」。
 別の軸なので両方要る。set_checkpoint("before Leg_R") を打っても、
@@ -169,6 +200,10 @@ Leg_R を構成するボディがどれかは記録されない。
 what_is_not_recorded は不在だけを名前で返す。他のツールは記録されている
 中身を運ぶので、記録の無いボディを探すには全体を読む羽目になる。これは
 その逆。部品を完成とする前に一度、記録を書き終えたと思ったらもう一度。
+
+問いは五つ。intent / placement / dimensions / shape が書かれているか、
+そして verification —— 誰かが記録と実測を突き合わせたか。no_verification に
+名前があるボディは、失敗したのではなく、まだ誰も見ていない。
 
 -- 何かがおかしいとき --
   volume_delta = 0        操作が効いていない。原因を調べてからやり直す

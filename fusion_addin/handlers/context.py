@@ -582,6 +582,34 @@ def check_integrity(params: dict) -> dict:
     except Exception:
         traceback.print_exc()
 
+    # A verification stamped on a different shape is worse than none: it reads
+    # as "someone checked this" about geometry nobody checked.
+    stale_verifications = []
+    try:
+        from . import shape as shape_tools
+        for entity, context in live:
+            v = context.get("verification")
+            if not v or not hasattr(entity, "faces"):
+                continue
+            drift = shape_tools.fingerprint_drift(
+                v.get("fingerprint"), shape_tools.fingerprint(entity))
+            if drift:
+                stale_verifications.append({
+                    "body": getattr(entity, "name", "?"),
+                    "verified_at": v.get("at"),
+                    "note": v.get("note"),
+                    "drift": drift,
+                })
+            elif not v.get("matches"):
+                stale_verifications.append({
+                    "body": getattr(entity, "name", "?"),
+                    "verified_at": v.get("at"),
+                    "note": v.get("note"),
+                    "mismatch": "recorded as NOT matching its intent",
+                })
+    except Exception:
+        traceback.print_exc()
+
     scan = list_contexts({})
     remaining_orphans = [r for r in orphan_records if not r.get("purged")]
     result = {
@@ -591,9 +619,12 @@ def check_integrity(params: dict) -> dict:
         "orphaned_count": len(orphan_records),
         "stale_shapes": stale_shapes,
         "stale_shape_count": len(stale_shapes),
+        "stale_verifications": stale_verifications,
+        "stale_verification_count": len(stale_verifications),
         "unannotated_bodies": scan["unannotated_bodies"],
         "annotated_count": scan["annotated_count"],
-        "ok": not dangling and not remaining_orphans and not stale_shapes,
+        "ok": (not dangling and not remaining_orphans and not stale_shapes
+               and not stale_verifications),
     }
     if purge:
         result["purged_count"] = sum(1 for r in orphan_records if r.get("purged"))
@@ -732,7 +763,7 @@ def what_is_not_recorded(params: dict) -> dict:
     limit = int(params.get("limit") or 40)
 
     missing = {"intent": [], "placement": [], "dimensions": [], "shape": [],
-               "constraints": []}
+               "constraints": [], "verification": []}
     total = 0
     complete = 0
 
@@ -747,6 +778,10 @@ def what_is_not_recorded(params: dict) -> dict:
                 gaps += 1
         if not context.get("constraints"):
             missing["constraints"].append(name)
+        # Never compared against its own geometry: not a failure, but not a
+        # pass either — nobody has looked.
+        if not context.get("verification"):
+            missing["verification"].append(name)
         if gaps == 0:
             complete += 1
 
@@ -755,7 +790,8 @@ def what_is_not_recorded(params: dict) -> dict:
         result["no_" + field] = names[:limit]
         result["no_%s_count" % field] = len(names)
     result["ok"] = not any(missing[f]
-                           for f in ("intent", "placement", "dimensions", "shape"))
+                           for f in ("intent", "placement", "dimensions",
+                                     "shape", "verification"))
     return result
 
 

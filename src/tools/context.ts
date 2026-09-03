@@ -152,6 +152,65 @@ export function register(server: McpServer, client: FusionClient): void {
     }
   );
 
+  // ── review_intent ──
+  server.tool(
+    "review_intent",
+    "Put what was RECORDED against what is actually MEASURED, side by side, and ask the questions. " +
+      "Nothing else does this: get_intent returns the reasons, describe_shape returns the geometry, " +
+      "and reading one of them is how a hole ends up in the wrong place while every review passes. " +
+      "This one judges nothing — 'clearance hole for the M3' cannot be machine-checked, and a checker " +
+      "that claimed to would be reporting a success it never earned. YOU are the check. " +
+      "Read the answers, then record them with verify_intent.",
+    {
+      target: z.string().describe("Body name or entityToken"),
+    },
+    async ({ target }) => {
+      try {
+        const result = await client.request("shape", "review", { target });
+        return {
+          content: [{ type: "text" as const, text: formatResult(result) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── verify_intent ──
+  server.tool(
+    "verify_intent",
+    "Record that you read the recorded reasons against the measured shape, and what you concluded. " +
+      "Until this is called a body counts as UNVERIFIED — not failed, but nobody has looked, " +
+      "and what_is_not_recorded says so. The fingerprint of the shape is stamped alongside, " +
+      "so machining the body later returns it to unverified rather than leaving a stale pass.",
+    {
+      target: z.string().describe("Body name or entityToken"),
+      matches: z.boolean().optional()
+        .describe("Does the geometry actually do what the recorded reasons claim? " +
+          "Default true. Record false when you found a contradiction you have not fixed yet."),
+      note: z.string()
+        .describe("REQUIRED: what you compared, concretely. 'intent says a through hole for M6; " +
+          "measured 2 openings and one 6.0mm cylindrical face.' Without this, 'verified' is " +
+          "indistinguishable from never having looked."),
+    },
+    async ({ target, matches, note }) => {
+      try {
+        const result = await client.request("shape", "verify", { target, matches, note });
+        return {
+          content: [{ type: "text" as const, text: formatResult(result) }],
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+        };
+      }
+    }
+  );
+
   // ── what_is_not_recorded ──
   server.tool(
     "what_is_not_recorded",

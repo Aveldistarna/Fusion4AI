@@ -301,6 +301,134 @@ def describe_module(name: str, entry: dict, bodies: List[Any],
     return info
 
 
+def _questions(context: dict, measured: dict) -> List[str]:
+    """The questions a reader has to answer, with the numbers already in them.
+
+    Templates, deliberately. The point is not to be clever about the prose —
+    it is that the recorded sentence and the measured fact end up in the same
+    line, where a mismatch is visible. Half of these read as obviously true;
+    that is fine, because the one that does not is the whole reason to look.
+    """
+    q = []
+    size = measured.get("bbox_mm", {}).get("size")
+    if context.get("intent"):
+        q.append("intent: %r — does the measured shape actually do this?"
+                 % context["intent"])
+    if context.get("placement"):
+        q.append("placement: %r — is it there? measured centre %s"
+                 % (context["placement"], measured.get("centre_mm")))
+    if context.get("dimensions"):
+        q.append("dimensions: %r — do the measured extents %s follow from that "
+                 "arithmetic?" % (context["dimensions"], size))
+    if context.get("shape"):
+        q.append("shape: %r — measured %d faces (%s), %d openings, fill %s, "
+                 "symmetry %s. The same object?"
+                 % (context["shape"], measured.get("face_count", 0),
+                    measured.get("faces"), measured.get("inner_loops", 0),
+                    measured.get("bbox_fill"), measured.get("symmetry_planes")))
+    else:
+        q.append("no shape is recorded — nothing says what this IS, so nothing "
+                 "can be compared against the measurement")
+    if not context.get("constraints"):
+        q.append("no constraint is recorded: nothing about this body is "
+                 "re-checked when anything moves")
+    return q
+
+
+def review(params: dict) -> dict:
+    """Put what was RECORDED and what was MEASURED side by side.
+
+    Nothing here judges. "clearance hole for the M3 that fixes the lid" cannot
+    be checked by machine, and a checker that tried would report a success it
+    had not earned — the failure this whole layer exists to prevent.
+
+    What a machine can do is stop the two halves living in separate tools.
+    get_intent and describe_shape each answer half the question, so half is
+    what gets read. Together, "intent says a through hole" next to
+    "inner_loops: 0" is a contradiction anyone can see.
+
+    You are the reader. Answer the questions, then record the answer with
+    verify_intent so the next reader can tell a checked part from an unchecked
+    one.
+    """
+    from . import context as ctx
+
+    design = _get_design()
+    target = params.get("target")
+    if not target:
+        raise ValueError("target is required")
+    body = find_body(design, target)
+    if not body:
+        raise ValueError(f"Body not found: {target}")
+
+    context = ctx._read_json_attr(body, ctx.ATTR_CONTEXT) or {}
+    measured = describe_body(body)
+
+    verification = context.get("verification")
+    if not verification:
+        state = {"status": "never verified"}
+    else:
+        drift = fingerprint_drift(verification.get("fingerprint"),
+                                  fingerprint(body))
+        state = dict(verification)
+        state["status"] = "stale" if drift else (
+            "verified" if verification.get("matches") else "mismatch recorded")
+        if drift:
+            state["drift_since_verified"] = drift
+
+    return {
+        "target": ctx.entity_brief(body, "body"),
+        "recorded": {k: context.get(k) for k in
+                     ("intent", "placement", "dimensions", "shape",
+                      "role", "constraints", "depends_on")},
+        "measured": measured,
+        "provenance": ctx._read_json_attr(body, ctx.ATTR_PROVENANCE) or [],
+        "verification": state,
+        "questions": _questions(context, measured),
+    }
+
+
+def verify(params: dict) -> dict:
+    """Record that the recorded reasons were read against the measured shape.
+
+    `note` is required on purpose. "verified: true" on its own is a claim, not
+    a check, and it is indistinguishable from never having looked. Writing
+    what was compared — "intent says a through hole for M6; measured 2
+    openings and one 6.0 cylindrical face" — is what makes it evidence.
+
+    The measured fingerprint is stamped alongside, so machining the body later
+    takes the verification back to stale rather than leaving a stale pass.
+    """
+    from . import context as ctx
+
+    design = _get_design()
+    target = params.get("target")
+    if not target:
+        raise ValueError("target is required")
+    body = find_body(design, target)
+    if not body:
+        raise ValueError(f"Body not found: {target}")
+
+    note = (params.get("note") or "").strip()
+    if not note:
+        raise ValueError(
+            "note is required: say what you compared. Without it, 'verified' "
+            "cannot be told apart from never having looked.")
+
+    record = {
+        "matches": bool(params.get("matches", True)),
+        "note": note,
+        "at": ctx._now(),
+        "fingerprint": fingerprint(body),
+    }
+    context = ctx._read_json_attr(body, ctx.ATTR_CONTEXT) or {}
+    context["verification"] = record
+    ctx._write_json_attr(body, ctx.ATTR_CONTEXT, context)
+    return {"target": ctx.entity_brief(body, "body"), "verification": record}
+
+
 ACTIONS = {
     "describe": describe,
+    "review": review,
+    "verify": verify,
 }
